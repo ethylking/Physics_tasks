@@ -1,0 +1,251 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://mechlab.local/schema/mech-project-v2.json",
+  "title": "MechProject v2 (.mech.json)",
+  "description": "Serialized truth of a mechanics project. Tier 1 entities are fully specified; Tier 2 plugin entities ride along as opaque records and are preserved verbatim.",
+  "type": "object",
+  "required": ["schemaVersion", "meta", "world", "enabledPlugins", "bodies", "statics", "joints", "forces", "ropes", "meters", "cameras"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "meta": {
+      "type": "object",
+      "required": ["id", "name", "mode", "createdAt", "modifiedAt"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["2D", "3D"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "modifiedAt": { "type": "string", "format": "date-time" },
+        "description": { "type": "string" }
+      }
+    },
+    "world": {
+      "type": "object",
+      "required": ["gravity", "timeScale", "fixedDt", "solverIterations", "additionalFrictionIterations", "internalPgsIterations", "maxMassRatio", "contactTolerance"],
+      "properties": {
+        "gravity": { "$ref": "#/definitions/vec3" },
+        "timeScale": { "type": "number", "exclusiveMinimum": 0 },
+        "fixedDt": { "type": "number", "exclusiveMinimum": 0 },
+        "solverIterations": { "type": "integer", "minimum": 1 },
+        "additionalFrictionIterations": { "type": "integer", "minimum": 1 },
+        "internalPgsIterations": { "type": "integer", "minimum": 1 },
+        "maxMassRatio": { "type": "number", "exclusiveMinimum": 0 },
+        "contactTolerance": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "enabledPlugins": { "type": "array", "items": { "type": "string" } },
+    "bodies": { "type": "array", "items": { "$ref": "#/definitions/body" } },
+    "statics": { "type": "array", "items": { "$ref": "#/definitions/static" } },
+    "joints": { "type": "array", "items": { "$ref": "#/definitions/joint" } },
+    "forces": { "type": "array", "items": { "$ref": "#/definitions/force" } },
+    "ropes": { "type": "array", "items": { "$ref": "#/definitions/rope" } },
+    "meters": { "type": "array", "items": { "$ref": "#/definitions/meter" } },
+    "cameras": { "$ref": "#/definitions/camera" },
+    "_raw": { "type": "object", "additionalProperties": true }
+  },
+  "definitions": {
+    "vec3": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+    "quat": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+    "appearance": {
+      "type": "object",
+      "properties": {
+        "color": { "type": "string" },
+        "opacity": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "body": {
+      "type": "object",
+      "required": ["id", "name", "kind", "tier", "geometry", "mass", "centerOfMass", "friction", "restitution", "ccd", "collisionGroups", "linearDamping", "angularDamping", "initial", "locks"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["box", "sphere", "ellipsoid", "cylinder", "rod", "wedge"] },
+        "tier": { "enum": [1, 2] },
+        "geometry": { "type": "object", "additionalProperties": true },
+        "mass": {
+          "type": "object",
+          "required": ["value", "mode"],
+          "properties": {
+            "value": { "type": "number", "exclusiveMinimum": 0 },
+            "mode": { "enum": ["total", "density"] }
+          }
+        },
+        "centerOfMass": { "$ref": "#/definitions/vec3" },
+        "inertia": {
+          "type": "object",
+          "properties": {
+            "I": { "$ref": "#/definitions/vec3" },
+            "principalFrame": { "$ref": "#/definitions/quat" }
+          }
+        },
+        "friction": { "type": "number" },
+        "restitution": { "type": "number" },
+        "faceFriction": { "type": "array", "items": { "type": "number" }, "maxItems": 6 },
+        "ccd": { "type": "boolean" },
+        "collisionGroups": {
+          "type": "object",
+          "properties": {
+            "memberships": { "type": "array", "items": { "type": "number" } },
+            "filters": { "type": "array", "items": { "type": "number" } }
+          }
+        },
+        "linearDamping": { "type": "number" },
+        "angularDamping": { "type": "number" },
+        "initial": {
+          "type": "object",
+          "properties": {
+            "position": { "$ref": "#/definitions/vec3" },
+            "rotation": { "$ref": "#/definitions/quat" },
+            "velocity": { "$ref": "#/definitions/vec3" },
+            "angularVelocity": { "$ref": "#/definitions/vec3" }
+          }
+        },
+        "locks": {
+          "type": "object",
+          "properties": {
+            "translate": { "type": "array", "items": { "type": "boolean" } },
+            "rotate": { "type": "array", "items": { "type": "boolean" } }
+          }
+        },
+        "appearance": { "$ref": "#/definitions/appearance" }
+      }
+    },
+    "static": {
+      "type": "object",
+      "required": ["id", "name", "kind", "plane", "friction", "restitution", "ccd"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["wall", "ground"] },
+        "plane": {
+          "type": "object",
+          "properties": {
+            "normal": { "$ref": "#/definitions/vec3" },
+            "extent": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          }
+        },
+        "friction": { "type": "number" },
+        "restitution": { "type": "number" },
+        "ccd": { "type": "boolean" },
+        "appearance": { "$ref": "#/definitions/appearance" }
+      }
+    },
+    "joint": {
+      "type": "object",
+      "required": ["id", "name", "kind", "tier", "bodyA", "bodyB", "anchors"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["revolute", "spherical", "prismatic", "fixed"] },
+        "tier": { "enum": [1, 2] },
+        "bodyA": { "type": ["string", "null"] },
+        "bodyB": { "type": ["string", "null"] },
+        "anchors": {
+          "type": "object",
+          "properties": { "a": { "$ref": "#/definitions/vec3" }, "b": { "$ref": "#/definitions/vec3" } }
+        },
+        "axis": { "enum": ["x", "y", "z", "custom"] },
+        "axisVec": { "$ref": "#/definitions/vec3" },
+        "revolute": {
+          "type": "object",
+          "properties": {
+            "friction": { "type": "number" },
+            "damping": { "type": "number" },
+            "limits": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          }
+        },
+        "prismatic": {
+          "type": "object",
+          "properties": {
+            "friction": { "type": "number" },
+            "limits": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          }
+        }
+      }
+    },
+    "force": {
+      "type": "object",
+      "required": ["id", "name", "kind", "tier", "body", "enabled"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["external", "torque", "thruster", "spring"] },
+        "tier": { "enum": [1, 2] },
+        "body": { "type": ["string", "null"] },
+        "anchor": { "$ref": "#/definitions/vec3" },
+        "localFrame": { "type": "boolean" },
+        "components": {
+          "type": "object",
+          "properties": { "x": { "type": "string" }, "y": { "type": "string" }, "z": { "type": "string" } }
+        },
+        "spring": {
+          "type": "object",
+          "properties": {
+            "k": { "type": "number" },
+            "restLength": { "type": "number" },
+            "damping": { "type": "number" },
+            "anchorB": { "type": "string" },
+            "anchorBPoint": { "$ref": "#/definitions/vec3" }
+          }
+        },
+        "enabled": { "type": "boolean" }
+      }
+    },
+    "rope": {
+      "type": "object",
+      "required": ["id", "name", "model", "tier", "path"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "model": { "enum": ["massless", "chain"] },
+        "tier": { "enum": [1, 2] },
+        "path": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "anchorId": { "type": "string" },
+              "point": { "$ref": "#/definitions/vec3" }
+            }
+          }
+        },
+        "pulleys": { "type": "array", "items": { "type": "string" } },
+        "massless": { "type": "object", "properties": { "inextensible": { "type": "boolean" } } },
+        "chain": {
+          "type": "object",
+          "properties": {
+            "mass": { "type": "number" },
+            "linearDensity": { "type": "number", "exclusiveMinimum": 0 },
+            "segments": { "type": "integer", "minimum": 2 },
+            "stiffness": { "type": "number" },
+            "damping": { "type": "number" }
+          }
+        }
+      }
+    },
+    "meter": {
+      "type": "object",
+      "required": ["id", "name", "kind", "tier"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string" },
+        "kind": { "enum": ["telemetry", "vectors", "trajectory", "energy", "momentum"] },
+        "tier": { "enum": [1, 2] },
+        "target": { "type": "string" },
+        "output": { "enum": ["hud", "plot", "export"] }
+      }
+    },
+    "camera": {
+      "type": "object",
+      "required": ["mode", "position", "target", "up", "fov", "zoom"],
+      "properties": {
+        "mode": { "enum": ["perspective", "orthographic"] },
+        "position": { "$ref": "#/definitions/vec3" },
+        "target": { "$ref": "#/definitions/vec3" },
+        "up": { "$ref": "#/definitions/vec3" },
+        "fov": { "type": "number" },
+        "zoom": { "type": "number" }
+      }
+    }
+  }
+}

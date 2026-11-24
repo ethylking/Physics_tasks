@@ -1,0 +1,2 @@
+# Keep the runtime project folder in the repository layout.
+# Contents (*.mech.json user data) are gitignored — the backend auto-creates this folder.

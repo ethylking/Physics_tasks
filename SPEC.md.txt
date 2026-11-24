@@ -1,0 +1,69 @@
+# Project Specification: 2D/3D Theoretical Mechanics Simulator
+
+## 1. Project Overview
+A desktop physics sandbox and educational simulation tool designed for university-level classical and theoretical mechanics (statics, kinematics, dynamics). Users can construct, edit, and simulate 2D and 3D mechanical systems with high mathematical precision, real-time vector visualization, telemetry inspection, and local project file management. *Note: Fluid dynamics/aerodynamics are explicitly excluded.*
+
+## 2. Target Tech Stack
+* **Desktop Framework:** Tauri v2 (Rust backend for native file system access, lightweight executable).
+* **Frontend & UI:** React 18+, TypeScript, Tailwind CSS, Lucide React (icons).
+* **3D/2D Rendering:** Three.js via React Three Fiber (`@react-three/fiber`) and `@react-three/drei`.
+* **Physics Engine:** `@dimforge/rapier3d-compat` (WASM) running with a deterministic fixed timestep.
+* **Math & Expression Parsing:** `mathjs` (for compiling user-defined parametric force/torque equations).
+* **State Management:** Zustand (with transient updates for high-frequency physics telemetry).
+* **Plotting / Telemetry:** `uPlot` or `Recharts` for real-time kinematic/energy graphs.
+
+## 3. Core Modes & Camera Controls
+* **Dual-Mode Workspace (Tabs):**
+  * **3D Mode:** Full 3D space using `PerspectiveCamera` and `OrbitControls` (pan, zoom, rotate around target).
+  * **2D Mode:** Planar mechanics workspace using `OrthographicCamera` and `MapControls` (pan, zoom only; rotation locked). Physics bodies in 2D mode have Z-axis translation and X/Y-axis rotations strictly locked at the solver level.
+* **Global Environment Settings:** Adjustable world gravity vector $\vec{g} = (g_x, g_y, g_z)$ (default $(0, -9.81, 0)$) and simulation time-scale / fixed $\Delta t$ (e.g., $1/120\text{s}$ or $1/240\text{s}$).
+
+## 4. Object Creation & Manipulation UX
+* **Spawn Palette & Ghost Preview:** Clicking an item in the creation toolbar attaches a semi-transparent 3D/2D "ghost preview" to the mouse cursor (raycasted onto the ground plane, grid, or snap points). Left-clicking instantiates the object.
+* **Snapping System:** Objects expose semantic **Anchor Points** (Center of Mass, face centers, vertices, pulley axle, pulley rim tangents, wall surfaces). Ropes, springs, joints, and external forces snap magnetically to these anchors.
+* **Selection & Inspector Panel:** Clicking an object highlights it, renders 3D/2D gizmos (`TransformControls` for pre-simulation positioning/rotation), highlights its **Center of Mass (CoM)** marker, and opens a right-hand **Properties Inspector** where every physical and geometric parameter can be modified post-creation.
+* **Hover Telemetry Tooltip:** Hovering over any body during pause or active simulation displays a floating HUD tooltip with live values: mass, position $(x,y,z)$, velocity $\vec{v}$ & $|\vec{v}|$, acceleration $\vec{a}$ & $|\vec{a}|$, angular velocity $\vec{\omega}$, kinetic/potential energy, and net force.
+
+## 5. Entities & Physical Parameters
+
+### 5.1 Rigid Bodies & Primitives (Pre-built & Editable)
+All bodies allow post-creation modification of dimensions $(x, y, z)$, total mass $m$, custom Center of Mass offset $\Delta \vec{r}_{CoM}$, restitution (elasticity), and initial velocity/angular velocity:
+1. **Box / Parallelepiped (Load):** Editable $(W, H, D)$. Must support **per-face friction coefficients** ($\mu_1 \dots \mu_6$) so a block sliding on different faces exhibits different friction.
+2. **Sphere:** Editable radius $R$, solid vs. hollow shell (affects moment of inertia $I = \frac{2}{5}mR^2$ vs. $\frac{2}{3}mR^2$).
+3. **Ellipsoid:** Editable semi-axes $(a, b, c)$ with accurate inertia tensor calculation.
+4. **Cylinder / Disk / Hoop:** Editable radius $R$ and height $H$ (for rolling-without-slipping problems).
+5. **Rod / Beam:** Editable length $L$ and thickness, uniform or custom linear mass distribution.
+6. **Inclined Plane / Wedge:** Can be fixed (infinite mass) or **dynamic** (movable wedge of mass $M$ on a frictionless/frictional floor).
+7. **Curved Track / Guide:** Parametric arc, circular loop, or spline track for constrained motion.
+
+### 5.2 Static Environment
+* **Wall / Plane:** Immovable infinite-mass boundary. Supports snapping anywhere on its surface, configurable friction coefficient $\mu$ and restitution, and strict non-penetration (Continuous Collision Detection enabled so high-speed or ultra-heavy objects never tunnel through).
+
+### 5.3 Mechanical Constraints & Pulleys
+* **Pulley (Fixed & Movable):** Configurable radius $R$, mass $m_p$, and moment of inertia $I$. Supports groove friction or ideal frictionless rotation.
+* **Rope / String / Cable:** Snaps between two or more anchors (including wrapping over pulleys). Two modes:
+  * *Massless & Inextensible:* Enforced via distance constraints / analytical tension solver.
+  * *Massive (Chain/Heavy Rope):* Parameterized either by **total mass $M$** or **linear mass density $\lambda$ (kg/m)**, simulated as a discretized multi-segment chain or catenary constraint.
+* **Joints:**
+  * *Revolute / Pin Joint (Hinge):* 1-DOF rotation around an axis (physical pendulums, levers) with optional joint friction/damping.
+  * *Spherical / Ball Joint:* 3-DOF rotation (3D spherical pendulum).
+  * *Prismatic / Slider Joint:* 1-DOF linear translation along an axis (beads on a wire, pistons).
+  * *Fixed / Weld Joint:* Rigidly locks two bodies together into a composite rigid body.
+* **Spring-Damper:** Snaps between two anchors; parameters: stiffness $k$ (N/m), rest length $L_0$, damping coefficient $c$.
+
+### 5.4 Parametric Forces & Torques
+* **External Force Vector (Arrow Entity):** Visualized as a 3D arrow attached to an anchor point (moves with the point or stays fixed in space, user-toggleable).
+  * Defined by 3 components: $F_x, F_y, F_z$.
+  * Each component accepts either a constant number OR a **mathematical expression string** dependent on simulation time $t$ and world/local coordinates $(x, y, z)$.
+  * Must support standard math functions: `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `sinh`, `cosh`, `tanh`, `exp`, `log`, `log10`, `sqrt`, `abs`, `pow`, `sign`, constants `pi`, `e`, and piecewise/step logic.
+* **External Torque Vector:** Rotational analog $\vec{M}(t, x, y, z)$ applied around body axes.
+* **Local Thruster:** Force vector defined in the body's local coordinate frame (rotates with the rigid body).
+
+## 6. Visualization & Analysis Tools
+* **Real-Time Force & Kinematic Vectors:** Toggleable arrows rendered directly on bodies during simulation: Velocity $\vec{v}$, Total Acceleration $\vec{a}$ (plus tangential $\vec{a}_\tau$ and normal $\vec{a}_n$), Gravity $m\vec{g}$, Normal Reaction $\vec{N}$, Friction $\vec{F}_f$, and Rope Tension $\vec{T}$.
+* **Trajectory Tracer:** Leaves a fading or persistent 3D/2D polyline trail behind selected anchor points (e.g., tracing a cycloid on a rolling wheel).
+
+## 7. File Management (Tauri Backend)
+* **Project Manager UI:** Modal/drawer on startup and accessible from the top bar.
+* **Local Storage Directory:** Automatically creates and reads from a `./projects/` folder located in the same directory as the application executable (using Tauri's `path` and `fs` APIs).
+* **Operations:** Create new project (2D or 3D), Save, Save As, Load, Duplicate, Delete, and Export telemetry data to `.csv`.

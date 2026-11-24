@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main window. Custom app commands (project CRUD) are always allowed; this only gates built-in plugin APIs.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

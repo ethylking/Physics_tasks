@@ -154,10 +154,14 @@ export function wedgeFrontHeight(thetaDeg: number, W: number, H: number): number
 function geometricInertia(kind: string, g: RigidBodyEntity["geometry"], mass: number): number[] {
   switch (kind) {
     case "box": {
-      const W = clampDim(num(g.box?.W, 1));
-      const H = clampDim(num(g.box?.H, 1));
-      const D = clampDim(num(g.box?.D, 1));
-      return DIAG((mass / 12) * (H * H + D * D), (mass / 12) * (W * W + D * D), (mass / 12) * (W * W + H * H));
+      const W = clampDim(num(g.box?.W, 1)); // X
+      const H = clampDim(num(g.box?.H, 1)); // Z (up)
+      const D = clampDim(num(g.box?.D, 1)); // Y (depth)
+      return DIAG(
+        (mass / 12) * (D * D + H * H),
+        (mass / 12) * (W * W + H * H),
+        (mass / 12) * (W * W + D * D),
+      );
     }
     case "sphere": {
       const R = clampDim(num(g.sphere?.R, 0.5));
@@ -173,16 +177,16 @@ function geometricInertia(kind: string, g: RigidBodyEntity["geometry"], mass: nu
     }
     case "cylinder": {
       const R = clampDim(num(g.cylinder?.R, 0.5));
-      const H = clampDim(num(g.cylinder?.H, 1));
+      const H = clampDim(num(g.cylinder?.H, 1)); // height along local +Z
       if (g.cylinder?.hollow) {
         // thin hoop: I_axis = mR², I_perp = m(6R² + H²)/12
         const axis = mass * R * R;
         const perp = (mass * (6 * R * R + H * H)) / 12;
-        return DIAG(perp, axis, perp);
+        return DIAG(perp, perp, axis);
       }
       const axis = 0.5 * mass * R * R;
       const perp = (mass * (3 * R * R + H * H)) / 12;
-      return DIAG(perp, axis, perp);
+      return DIAG(perp, perp, axis);
     }
     default:
       return DIAG(mass, mass, mass);
@@ -436,13 +440,14 @@ export function computeBodyMassProperties(body: RigidBodyEntity): MassProperties
       cDist = [props.rcm - L / 2, 0, 0];
       const iPerp = props.iPerpAboutCM + (mass * t * t) / 16;
       const iAxial = (mass * t * t) / 8;
-      Igeo = shiftCMToPoint(DIAG(iPerp, iAxial, iPerp), mass, cDist);
+      // The rod lies along local +X: smallest moment about X, equal perpendicular moments.
+      Igeo = shiftCMToPoint(DIAG(iAxial, iPerp, iPerp), mass, cDist);
     } else {
       mass = body.mass.mode === "density" ? body.mass.value * L * t * t : body.mass.value;
       mass = clampMass(mass);
       const iPerp = (mass * L * L) / 12 + (mass * t * t) / 16;
       const iAxial = (mass * t * t) / 8;
-      Igeo = DIAG(iPerp, iAxial, iPerp);
+      Igeo = DIAG(iAxial, iPerp, iPerp);
     }
   } else if (body.kind === "wedge") {
     const thetaDeg = num(g.wedge?.thetaDeg, 30);
@@ -455,12 +460,14 @@ export function computeBodyMassProperties(body: RigidBodyEntity): MassProperties
     const pr = wedgeProfileIntegrals(W, H, fH);
     const A = ((H + fH) / 2) * W;
     const perLength = mass / A;
-    const ix = perLength * pr.ixx + (mass * D * D) / 12;
-    const iy = perLength * pr.iyy + (mass * D * D) / 12;
-    const iz = perLength * pr.izz;
-    const ixy = perLength * pr.ixy;
-    cDist = [pr.cx, pr.cy, 0];
-    const Icentroid = [ix, ixy, 0, ixy, iy, 0, 0, 0, iz];
+    // Profile coordinates are (x horizontal, y vertical); the depth D is along
+    // world Y whereas the vertical profile axis maps to world Z.
+    const ix = perLength * pr.ixx + (mass * D * D) / 12; // about X
+    const iy = perLength * pr.izz; // about Y (depth)
+    const iz = perLength * pr.iyy + (mass * D * D) / 12; // about Z (up)
+    const ixz = perLength * pr.ixy;
+    cDist = [pr.cx, 0, pr.cy];
+    const Icentroid = [ix, 0, ixz, 0, iy, 0, ixz, 0, iz];
     Igeo = shiftCMToPoint(Icentroid, mass, cDist);
   } else {
     mass = body.mass.mode === "density" ? body.mass.value * volumeOfBody(body) : body.mass.value;

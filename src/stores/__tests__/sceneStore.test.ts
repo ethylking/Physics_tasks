@@ -25,10 +25,11 @@ function resetStores() {
     selectedId: null,
     hoveredId: null,
     tool: null,
+    axisArrowsId: null,
     transport: "stopped",
     gizmoMode: "translate",
     dirty: false,
-    gravityZBefore2D: 0,
+    gravityYBefore2D: 0,
   });
 }
 
@@ -70,7 +71,7 @@ describe("sceneStore — load & persistence", () => {
     const parsed = JSON.parse(json) as MechProject;
     expect(parsed.schemaVersion).toBe(2);
     expect(parsed.bodies.length).toBe(project.bodies.length);
-    expect(parsed.world.gravity).toEqual([0, -9.81, 0]);
+    expect(parsed.world.gravity).toEqual([0, 0, -9.81]);
   });
 
   it("resetToInitial restores the loaded snapshot and stops transport", () => {
@@ -136,7 +137,90 @@ describe("sceneStore — entity mutations", () => {
       null,
     );
     const sphere = useSceneStore.getState().project?.bodies.find((b) => b.id === id);
-    expect(sphere?.initial.position).toEqual([1, 0.5, 0]);
+    expect(sphere?.initial.position).toEqual([1, 0, 0.5]);
+  });
+
+  it("spawnFromTool lifts a pulley by its ACTUAL thin-disk half-height", () => {
+    const project = createDefaultProject("Pulley lift", "3D");
+    useSceneStore.getState().loadFromProject(project);
+
+    const id = useSceneStore.getState().spawnFromTool(
+      { category: "bodies", kind: "pulley", label: "Pulley" },
+      [2.5, -1, 0],
+      null,
+    );
+    const pulley = useSceneStore.getState().project?.bodies.find((b) => b.id === id);
+    expect(pulley?.kind).toBe("cylinder");
+    expect(pulley?.initial.position[0]).toBe(2.5);
+    expect(pulley?.initial.position[1]).toBe(-1);
+    // H = 0.08 → rests on the placement plane, not the default cylinder H/2 = 0.5.
+    expect(pulley?.initial.position[2]).toBeCloseTo(0.04, 6);
+  });
+
+  it("spawnFromTool places statics at the placement point (not the origin)", () => {
+    const project = createDefaultProject("Static place", "3D");
+    useSceneStore.getState().loadFromProject(project);
+
+    const id = useSceneStore.getState().spawnFromTool(
+      { category: "statics", kind: "wall", label: "Wall" },
+      [3.2, 4.1, 0],
+      null,
+    );
+    const wall = useSceneStore.getState().project?.statics.find((s) => s.id === id);
+    expect(wall?.position).toEqual([3.2, 4.1, 0]);
+
+    // Ground follows the click point too (its height = placement z).
+    const groundId = useSceneStore.getState().spawnFromTool(
+      { category: "statics", kind: "ground", label: "Ground" },
+      [1, 2, 0.25],
+      null,
+    );
+    const ground = useSceneStore.getState().project?.statics.find((s) => s.id === groundId);
+    expect(ground?.position).toEqual([1, 2, 0.25]);
+  });
+
+  it("shows the post-creation axis arrows only for the freshly spawned entity", () => {
+    const project = createDefaultProject("Arrows", "3D");
+    useSceneStore.getState().loadFromProject(project);
+    const store = useSceneStore.getState();
+
+    const boxId = store.spawnFromTool(
+      { category: "bodies", kind: "box", label: "Box" },
+      [1, 0, 0],
+      null,
+    );
+    expect(useSceneStore.getState().axisArrowsId).toBe(boxId);
+
+    // Re-selecting the same entity keeps the arrows.
+    useSceneStore.getState().setSelected(boxId);
+    expect(useSceneStore.getState().axisArrowsId).toBe(boxId);
+
+    // Selecting anything else dismisses them.
+    useSceneStore.getState().setSelected(project.bodies[0]!.id);
+    expect(useSceneStore.getState().axisArrowsId).toBeNull();
+
+    // Spawning again moves the arrows to the new entity…
+    const sphereId = useSceneStore.getState().spawnFromTool(
+      { category: "bodies", kind: "sphere", label: "Sphere" },
+      [1, 0, 0],
+      null,
+    );
+    expect(useSceneStore.getState().axisArrowsId).toBe(sphereId);
+
+    // …picking a palette tool dismisses them…
+    useSceneStore.getState().setTool({ category: "bodies", kind: "rod", label: "Rod" });
+    expect(useSceneStore.getState().axisArrowsId).toBeNull();
+
+    // …and deleting the entity dismisses them.
+    useSceneStore.getState().spawnFromTool(
+      { category: "bodies", kind: "box", label: "Box" },
+      [1, 0, 0],
+      null,
+    );
+    const freshId = useSceneStore.getState().axisArrowsId;
+    expect(freshId).toBeTruthy();
+    useSceneStore.getState().deleteEntity(freshId!);
+    expect(useSceneStore.getState().axisArrowsId).toBeNull();
   });
 
   it("attaches connectors to the snapped body with LOCAL anchors", () => {
@@ -176,40 +260,43 @@ describe("sceneStore — entity mutations", () => {
 });
 
 describe("sceneStore — mode & gravity", () => {
-  it("setMode(2D) locks bodies to the XY plane and zeroes gravity z; setMode(3D) restores", () => {
+  it("setMode(2D) locks bodies to the X–Z plane and zeroes gravity y; setMode(3D) restores", () => {
     const project = createDefaultProject("Mode", "3D");
     useSceneStore.getState().loadFromProject(project);
-    useSceneStore.getState().setGravity(2, 5); // gz = 5 in 3D
+    useSceneStore.getState().setGravity(1, 5); // gy = 5 in 3D
+    const gz3d = useSceneStore.getState().project?.world.gravity[2];
 
     useSceneStore.getState().setMode("2D");
     let state = useSceneStore.getState();
     expect(state.project?.meta.mode).toBe("2D");
-    expect(state.project?.world.gravity[2]).toBe(0);
+    expect(state.project?.world.gravity[1]).toBe(0);
+    expect(state.project?.world.gravity[2]).toBe(gz3d); // gravity stays down (-Z)
     for (const b of state.project?.bodies ?? []) {
-      expect(b.locks.translate).toEqual([false, false, true]);
-      expect(b.locks.rotate).toEqual([true, true, false]);
+      expect(b.locks.translate).toEqual([false, true, false]);
+      expect(b.locks.rotate).toEqual([true, false, true]);
     }
 
     useSceneStore.getState().setMode("3D");
     state = useSceneStore.getState();
-    expect(state.project?.world.gravity[2]).toBe(5);
+    expect(state.project?.world.gravity[1]).toBe(5);
     for (const b of state.project?.bodies ?? []) {
       expect(b.locks.translate).toEqual([false, false, false]);
       expect(b.locks.rotate).toEqual([false, false, false]);
     }
   });
 
-  it("writeTransform clamps position and rotation to the 2D plane", () => {
+  it("writeTransform clamps position and rotation to the 2D X–Z plane", () => {
     const project = createDefaultProject("2D write", "2D");
     useSceneStore.getState().loadFromProject(project);
     const boxId = project.bodies[0]!.id;
 
     useSceneStore.getState().writeTransform(boxId, [1.2, 3.4, 7], [0.1, 0.2, 0.7, 0.5] as Quat);
     const body = useSceneStore.getState().project?.bodies.find((b) => b.id === boxId);
-    expect(body?.initial.position).toEqual([1.2, 3.4, 0]);
-    // only a Z rotation may survive
-    const [qx, qy] = body?.initial.rotation ?? [0, 0];
+    expect(body?.initial.position).toEqual([1.2, 0, 7]);
+    // only a Y rotation may survive
+    const [qx, qy, qz] = body?.initial.rotation ?? [0, 0, 0];
     expect(qx).toBeCloseTo(0, 6);
-    expect(qy).toBeCloseTo(0, 6);
+    expect(qz).toBeCloseTo(0, 6);
+    expect(Math.abs(qy)).toBeGreaterThan(0.01);
   });
 });

@@ -40,8 +40,9 @@ function Crosshair3D({ position, rotation }: { position: Vec3; rotation: Quat })
 }
 
 function Crosshair2D({ position }: { position: Vec3 }) {
+  // Local X–Y crosshair rotated into the world X–Z plane.
   return (
-    <group position={position}>
+    <group position={position} rotation={[Math.PI / 2, 0, 0]}>
       <mesh>
         <circleGeometry args={[0.07, 24]} />
         <meshBasicMaterial color={CO_COLOR} side={THREE.DoubleSide} depthTest={false} />
@@ -62,14 +63,14 @@ export function CoMMarkers({ body, flat = false }: { body: RigidBodyEntity; flat
   const comWorld = localToWorld(body.centerOfMass, body.initial.position, body.initial.rotation);
 
   if (flat) {
-    const origin2D: Vec3 = [body.initial.position[0], body.initial.position[1], 0];
+    const origin2D: Vec3 = [body.initial.position[0], 0, body.initial.position[2]];
     return (
       <group>
-        <mesh position={origin2D}>
+        <mesh position={origin2D} rotation={[Math.PI / 2, 0, 0]}>
           <circleGeometry args={[0.045, 20]} />
           <meshBasicMaterial color="#a1a1aa" side={THREE.DoubleSide} depthTest={false} />
         </mesh>
-        <Crosshair2D position={[comWorld[0], comWorld[1], 0]} />
+        <Crosshair2D position={[comWorld[0], 0, comWorld[2]]} />
       </group>
     );
   }

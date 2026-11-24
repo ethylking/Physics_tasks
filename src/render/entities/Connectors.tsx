@@ -35,6 +35,8 @@ import {
   samplePulleyArc,
 } from "../../physics/ropes";
 import { ArrowMesh } from "./shared";
+import { EntityAnchor, SelectionProxy } from "./EntityGroup";
+import { entityWorldPosition } from "./positions";
 
 const FALLBACK: Vec3 = [0, 0, 0];
 
@@ -167,6 +169,11 @@ export function JointEntity({ joint }: { joint: JointEntityType }) {
     headB?: THREE.Mesh;
   }>({});
   const getAnchors = useJointAnchors(joint);
+  const project = useSceneStore((s) => s.project);
+  const anchorPosition = useMemo(
+    () => (project ? entityWorldPosition(project, "joints", joint) : FALLBACK),
+    [project, joint],
+  );
 
   useEffect(() => {
     const group = groupRef.current;
@@ -267,7 +274,13 @@ export function JointEntity({ joint }: { joint: JointEntityType }) {
     }
   });
 
-  return <group ref={groupRef} />;
+  return (
+    <>
+      <group ref={groupRef} />
+      <SelectionProxy id={joint.id} position={anchorPosition} />
+      <EntityAnchor id={joint.id} position={anchorPosition} />
+    </>
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -287,7 +300,8 @@ function HelixCurve(start: THREE.Vector3, dir: THREE.Vector3, length: number): T
     }
     getPoint(t: number, target: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
       const angle = t * Math.PI * 2 * COILS;
-      const up = Math.abs(this.d.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+      // Z-up: use +Z as the stable reference unless the helix is vertical.
+      const up = Math.abs(this.d.z) < 0.99 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
       const u = new THREE.Vector3().crossVectors(this.d, up).normalize();
       const v = new THREE.Vector3().crossVectors(u, this.d).normalize();
       return target
@@ -302,7 +316,12 @@ function HelixCurve(start: THREE.Vector3, dir: THREE.Vector3, length: number): T
 
 export function ForceEntity({ force }: { force: ForceEntityType }) {
   const bodies = useBodies();
+  const project = useSceneStore((s) => s.project);
   const color = force.appearance?.color ?? "#ef4444";
+  const anchorPosition = useMemo(
+    () => (project ? entityWorldPosition(project, "forces", force) : FALLBACK),
+    [project, force],
+  );
 
   if (force.kind === "spring" && force.spring) {
     return <LiveSpring force={force} color={color} />;
@@ -316,13 +335,17 @@ export function ForceEntity({ force }: { force: ForceEntityType }) {
   })();
   const scale = force.appearance?.scale ?? 1;
   return (
-    <group>
-      <ArrowMesh position={base} color={color} length={1 * scale} />
-      <mesh position={base}>
-        <sphereGeometry args={[0.04, 12, 8]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
-    </group>
+    <>
+      <group>
+        <ArrowMesh position={base} color={color} length={1 * scale} />
+        <mesh position={base}>
+          <sphereGeometry args={[0.04, 12, 8]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+      </group>
+      <SelectionProxy id={force.id} position={anchorPosition} />
+      <EntityAnchor id={force.id} position={anchorPosition} />
+    </>
   );
 }
 
@@ -331,6 +354,11 @@ function LiveSpring({ force, color }: { force: ForceEntityType; color: string })
   const lastKey = useRef<string>("");
   const pinARef = useRef<THREE.Mesh | null>(null);
   const pinBRef = useRef<THREE.Mesh | null>(null);
+  const project = useSceneStore((s) => s.project);
+  const anchorPosition = useMemo(
+    () => (project ? entityWorldPosition(project, "forces", force) : FALLBACK),
+    [project, force],
+  );
 
   const spring = force.spring!;
 
@@ -378,19 +406,23 @@ function LiveSpring({ force, color }: { force: ForceEntityType; color: string })
   });
 
   return (
-    <group>
-      <mesh ref={meshRef} geometry={geometry} visible={false}>
-        <meshBasicMaterial color={color} />
-      </mesh>
-      <mesh ref={pinARef}>
-        <sphereGeometry args={[0.05, 14, 10]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
-      <mesh ref={pinBRef}>
-        <sphereGeometry args={[0.05, 14, 10]} />
-        <meshBasicMaterial color={color} />
-      </mesh>
-    </group>
+    <>
+      <group>
+        <mesh ref={meshRef} geometry={geometry} visible={false}>
+          <meshBasicMaterial color={color} />
+        </mesh>
+        <mesh ref={pinARef}>
+          <sphereGeometry args={[0.05, 14, 10]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+        <mesh ref={pinBRef}>
+          <sphereGeometry args={[0.05, 14, 10]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+      </group>
+      <SelectionProxy id={force.id} position={anchorPosition} />
+      <EntityAnchor id={force.id} position={anchorPosition} />
+    </>
   );
 }
 
@@ -448,7 +480,11 @@ function useRopePathState(rope: RopeEntityType): () => { points: Vec3[] } {
             const mount = project.joints.find(
               (j) => j.kind === "revolute" && (j.bodyA === pulleyId || j.bodyB === pulleyId),
             );
-            const axis = mount ? resolveJointAxis(mount, project.meta.mode) : ([0, 0, 1] as Vec3);
+            const axis = mount
+              ? resolveJointAxis(mount, project.meta.mode)
+              : project.meta.mode === "2D"
+                ? ([0, 1, 0] as Vec3)
+                : ([0, 0, 1] as Vec3);
             const geo = computePulleyWrapGeometry(prev, w, center, radius, axis);
             if (geo) {
               pts.push(geo.tIn);
@@ -472,6 +508,11 @@ export function RopeEntity({ rope }: { rope: RopeEntityType }) {
   const color = rope.appearance?.color ?? "#e4e4e7";
   const { element, setPoints } = useDynamicTube(Math.max(0.004, radius * 0.8), color);
   const getPath = useRopePathState(rope);
+  const project = useSceneStore((s) => s.project);
+  const anchorPosition = useMemo(
+    () => (project ? entityWorldPosition(project, "ropes", rope) : FALLBACK),
+    [project, rope],
+  );
 
   // Edit-time fallback (idle): static path from initial poses.
   const bodies = useBodies();
@@ -499,7 +540,13 @@ export function RopeEntity({ rope }: { rope: RopeEntityType }) {
     setPoints(points.length >= 2 ? points : editPoints);
   });
 
-  return <>{element}</>;
+  return (
+    <>
+      <group>{element}</group>
+      <SelectionProxy id={rope.id} position={anchorPosition} />
+      <EntityAnchor id={rope.id} position={anchorPosition} />
+    </>
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -508,14 +555,23 @@ export function RopeEntity({ rope }: { rope: RopeEntityType }) {
 
 export function MeterEntity({ meter }: { meter: MeterEntityType }) {
   const bodies = useBodies();
+  const project = useSceneStore((s) => s.project);
+  const anchorPosition = useMemo(
+    () => (project ? entityWorldPosition(project, "meters", meter) : FALLBACK),
+    [project, meter],
+  );
   const target = meter.target ? bodies.find((b) => b.id === meter.target) : undefined;
-  const position: Vec3 = target ? target.initial.position : [0, 0, 0];
+  const position: Vec3 = meter.position ?? (target ? target.initial.position : [0, 0, 0]);
   return (
-    <group>
-      <mesh position={position}>
-        <octahedronGeometry args={[0.12, 0]} />
-        <meshBasicMaterial color="#34d399" />
-      </mesh>
-    </group>
+    <>
+      <group>
+        <mesh position={position}>
+          <octahedronGeometry args={[0.12, 0]} />
+          <meshBasicMaterial color="#34d399" />
+        </mesh>
+      </group>
+      <SelectionProxy id={meter.id} position={anchorPosition} />
+      <EntityAnchor id={meter.id} position={anchorPosition} />
+    </>
   );
 }

@@ -37,7 +37,7 @@ const G = 9.81;
 function atwoodProject(mode: "2D" | "3D"): { project: MechProject; m1Id: string; m2Id: string; pulleyId: string } {
   const project = createDefaultProject("atwood", mode, { seedScene: false });
   project.world.fixedDt = 1 / 240;
-  project.world.gravity = [0, -G, 0];
+  project.world.gravity = [0, 0, -G];
   project.world.solverIterations = 8;
 
   const R = 0.5;
@@ -47,11 +47,14 @@ function atwoodProject(mode: "2D" | "3D"): { project: MechProject; m1Id: string;
   pulley.mass = { value: 2, mode: "total" };
   pulley.linearDamping = 0;
   pulley.angularDamping = 0;
-  pulley.initial = { ...pulley.initial, position: [0, 3, 0] };
-  if (mode === "3D") {
-    // Align the cylinder's axis (local Y) with world Z: disk in the XY plane.
-    pulley.initial = { ...pulley.initial, rotation: eulerDegToQuat([90, 0, 0]) };
-  }
+  // 3D: cylinder axis is local +Z; rotate 90° about X so the axle points along
+  // world Y and the disk lies in the vertical X–Z plane. 2D treats a pulley as
+  // an implicit X–Z disk (+Y axle), so the body stays axis-aligned.
+  pulley.initial = {
+    ...pulley.initial,
+    position: [0, 0, 3],
+    rotation: mode === "3D" ? eulerDegToQuat([90, 0, 0]) : [0, 0, 0, 1],
+  };
   project.bodies.push(pulley);
 
   const m1 = createDefaultBody("box");
@@ -60,7 +63,7 @@ function atwoodProject(mode: "2D" | "3D"): { project: MechProject; m1Id: string;
   m1.mass = { value: 3, mode: "total" };
   m1.linearDamping = 0;
   m1.angularDamping = 0;
-  m1.initial = { ...m1.initial, position: [-R, 1, 0] };
+  m1.initial = { ...m1.initial, position: [-R, 0, 1] };
   project.bodies.push(m1);
 
   const m2 = createDefaultBody("box");
@@ -69,16 +72,16 @@ function atwoodProject(mode: "2D" | "3D"): { project: MechProject; m1Id: string;
   m2.mass = { value: 1, mode: "total" };
   m2.linearDamping = 0;
   m2.angularDamping = 0;
-  m2.initial = { ...m2.initial, position: [R, 1, 0] };
+  m2.initial = { ...m2.initial, position: [R, 0, 1] };
   project.bodies.push(m2);
 
-  // Fixed pulley: revolute mount to the world (axle friction/damping = 0).
+  // Fixed pulley: revolute mount to the world about Y (normal to X–Z).
   const mount = createDefaultJoint("revolute");
   mount.name = "Pulley mount";
   mount.bodyA = null;
   mount.bodyB = pulley.id;
-  mount.anchors = { a: [0, 3, 0], b: [0, 0, 0] };
-  mount.axis = "z";
+  mount.anchors = { a: [0, 0, 3], b: [0, 0, 0] };
+  mount.axis = "y";
   mount.revolute = { friction: 0, damping: 0 };
   project.joints.push(mount);
 
@@ -94,7 +97,7 @@ function atwoodProject(mode: "2D" | "3D"): { project: MechProject; m1Id: string;
   return { project, m1Id: m1.id, m2Id: m2.id, pulleyId: pulley.id };
 }
 
-function runAtwood(mode: "2D" | "3D"): { aMeasured: number; aTheory: number; omegaZ: number } {
+function runAtwood(mode: "2D" | "3D"): { aMeasured: number; aTheory: number; omegaY: number } {
   const { project } = atwoodProject(mode);
   const engine = new PhysicsEngine(project, RAPIER);
 
@@ -112,7 +115,7 @@ function runAtwood(mode: "2D" | "3D"): { aMeasured: number; aTheory: number; ome
   const v1 = engine.bodies[m1Index]!.linvel();
   for (let i = steps1; i < steps2; i++) engine.step();
   const v2 = engine.bodies[m1Index]!.linvel();
-  const aMeasured = (v2.y - v1.y) / (t2 - t1); // falling → negative
+  const aMeasured = (v2.z - v1.z) / (t2 - t1); // falling → negative
   const omega = engine.bodies[pulleyIndex]!.angvel();
 
   // Exact textbook formula: I = ½·m_p·R² = 0.25, I/R² = 1 kg.
@@ -123,16 +126,16 @@ function runAtwood(mode: "2D" | "3D"): { aMeasured: number; aTheory: number; ome
   const I = 0.5 * mp * R * R;
   const aTheory = ((m1 - m2) * G) / (m1 + m2 + I / (R * R));
 
-  return { aMeasured, aTheory, omegaZ: omega.z };
+  return { aMeasured, aTheory, omegaY: omega.y };
 }
 
 describe("mechanisms — Atwood machine with massive pulley (§2.1)", () => {
   it("3D: matches a = (m₁−m₂)g/(m₁+m₂+I/R²) within 2% and the pulley obeys a = αR", () => {
-    const { aMeasured, aTheory, omegaZ } = runAtwood("3D");
+    const { aMeasured, aTheory, omegaY } = runAtwood("3D");
     expect(Math.abs(aMeasured - -aTheory) / aTheory).toBeLessThan(0.02);
-    // a = αR → ω(t) = (a/R)·t.
+    // a = αR → ω(t) = (a/R)·t about the axle (+Y).
     const t = 0.8;
-    expect(Math.abs(omegaZ - (-aTheory / 0.5) * t) / ((-aTheory / 0.5) * t)).toBeLessThan(0.04);
+    expect(Math.abs(omegaY - (-aTheory / 0.5) * t) / ((-aTheory / 0.5) * t)).toBeLessThan(0.04);
   });
 
   it("2D: same textbook acceleration with the disk pulley (I_z = ½mR²)", () => {
@@ -149,7 +152,7 @@ describe("mechanisms — Atwood machine with massive pulley (§2.1)", () => {
     engine.writeSnapshot(out);
 
     const m1Index = engine.bodyIds.indexOf(project.bodies.find((b) => b.name === "m1")!.id);
-    const a = engine.meta[m1Index]!.accel[1];
+    const a = engine.meta[m1Index]!.accel[2];
     const T1 = 3 * (G + a); // rope pull on m1 is upward: m₁g − m₁a = m₁(g − |a|)
     const T2 = 1 * (G - a); // m2 accelerates up: T₂ − m₂g = m₂a → T₂ = m₂(g + a)
     const ropeOffset = snapshotRopesOffset(engine.bodies.length);
@@ -167,11 +170,11 @@ describe("mechanisms — physical pendulum (revolute joint)", () => {
   it("oscillation period matches T = 2π√(L/g) within 1.5%", () => {
     const project = createDefaultProject("pendulum", "3D", { seedScene: false });
     project.world.fixedDt = 1 / 240;
-    project.world.gravity = [0, -G, 0];
+    project.world.gravity = [0, 0, -G];
 
     const L = 2;
     const theta0 = (5 * Math.PI) / 180;
-    const pos: [number, number, number] = [L * Math.sin(theta0), -L * Math.cos(theta0), 0];
+    const pos: [number, number, number] = [L * Math.sin(theta0), 0, -L * Math.cos(theta0)];
 
     const bob = createDefaultBody("sphere");
     bob.name = "Bob";
@@ -187,7 +190,7 @@ describe("mechanisms — physical pendulum (revolute joint)", () => {
     joint.bodyA = null;
     joint.bodyB = bob.id;
     joint.anchors = { a: [0, 0, 0], b: worldToLocal([0, 0, 0], pos, [0, 0, 0, 1]) };
-    joint.axis = "z";
+    joint.axis = "y";
     joint.revolute = { friction: 0, damping: 0 };
     project.joints.push(joint);
 
@@ -311,14 +314,14 @@ describe("mechanisms — harmonic spring-mass oscillator (§4.3)", () => {
 function catenaryProject(): { project: MechProject; rope: RopeEntity } {
   const project = createDefaultProject("catenary", "3D", { seedScene: false });
   project.world.fixedDt = 1 / 240;
-  project.world.gravity = [0, -G, 0];
+  project.world.gravity = [0, 0, -G];
 
   const rope = createDefaultRope("chain");
   rope.name = "Chain";
   rope.path = [
-    { anchorId: "", point: [-1.5, 2, 0] },
-    { anchorId: "", point: [0, 1.5, 0] },
-    { anchorId: "", point: [1.5, 2, 0] },
+    { anchorId: "", point: [-1.5, 0, 2] },
+    { anchorId: "", point: [0, 0, 1.5] },
+    { anchorId: "", point: [1.5, 0, 2] },
   ];
   rope.chain = { mass: 1, segments: 30, stiffness: 1000, damping: 10 };
   rope.appearance = { color: "#e4e4e7", thickness: 0.02 };
@@ -343,25 +346,25 @@ describe("mechanisms — massive chain catenary (§2.1.2)", () => {
       expect(Number.isFinite(out[i]!)).toBe(true);
     }
 
-    const segY = (i: number): number => {
+    const segZ = (i: number): number => {
       const o = SNAPSHOT_HEADER + i * SNAPSHOT_FLOATS_PER_BODY;
-      return out[o + SNAPSHOT_INDEX.POS + 1] ?? NaN;
+      return out[o + SNAPSHOT_INDEX.POS + 2] ?? NaN;
     };
     const segV = (i: number): number => {
       const o = SNAPSHOT_HEADER + i * SNAPSHOT_FLOATS_PER_BODY;
       const vx = out[o + SNAPSHOT_INDEX.LINVEL] ?? 0;
-      const vy = out[o + SNAPSHOT_INDEX.LINVEL + 1] ?? 0;
-      return Math.hypot(vx, vy);
+      const vz = out[o + SNAPSHOT_INDEX.LINVEL + 2] ?? 0;
+      return Math.hypot(vx, vz);
     };
 
-    // The chain (path length 3.16 m > 3 m span) sags below the pin line y = 2.
-    const mid = segY(15);
+    // The chain (path length 3.16 m > 3 m span) sags below the pin line z = 2.
+    const mid = segZ(15);
     expect(mid).toBeGreaterThan(0.5);
     expect(mid).toBeLessThan(2 - 0.05);
 
     // Symmetry about x = 0.
-    expect(Math.abs(segY(14) - segY(15))).toBeLessThan(0.02);
-    expect(Math.abs(segY(5) - segY(24))).toBeLessThan(0.05);
+    expect(Math.abs(segZ(14) - segZ(15))).toBeLessThan(0.02);
+    expect(Math.abs(segZ(5) - segZ(24))).toBeLessThan(0.05);
 
     // Settled: segment speeds are small and the middle stays put.
     // A tiny residual wobble (≲ 0.08 m/s on a 1 kg chain) is acceptable —
@@ -369,10 +372,10 @@ describe("mechanisms — massive chain catenary (§2.1.2)", () => {
     const maxV = Math.max(...Array.from({ length: segCount }, (_, i) => segV(i)));
     expect(maxV).toBeLessThan(0.1);
 
-    const midBefore = segY(15);
+    const midBefore = segZ(15);
     for (let i = 0; i < Math.round(1 / engine.dt); i++) engine.step();
     engine.writeSnapshot(out);
-    expect(Math.abs(segY(15) - midBefore)).toBeLessThan(0.005);
+    expect(Math.abs(segZ(15) - midBefore)).toBeLessThan(0.005);
 
     void rope;
   });

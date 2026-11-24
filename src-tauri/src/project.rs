@@ -214,13 +214,13 @@ mod tests {
                 "modifiedAt": "2026-01-01T00:00:00Z"
             },
             "world": {
-                "gravity": [0, -9.81, 0], "timeScale": 1, "fixedDt": 1.0 / 120.0,
+                "gravity": [0, 0, -9.81], "timeScale": 1, "fixedDt": 1.0 / 120.0,
                 "solverIterations": 4, "additionalFrictionIterations": 4,
                 "internalPgsIterations": 1, "maxMassRatio": 10000, "contactTolerance": 0.005
             },
             "enabledPlugins": [],
             "bodies": [], "statics": [], "joints": [], "forces": [], "ropes": [], "meters": [],
-            "cameras": { "mode": "perspective", "position": [0,0,0], "target": [0,0,0], "up": [0,1,0], "fov": 50, "zoom": 1 }
+            "cameras": { "mode": "perspective", "position": [0,0,0], "target": [0,0,0], "up": [0,0,1], "fov": 50, "zoom": 1 }
         })
     }
 

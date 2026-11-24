@@ -63,8 +63,9 @@ function normalizeAxis(v: Vec3): Vec3 {
 }
 
 /**
- * World-space axis of a joint. §4.5 — in 2D mode every revolute/prismatic axis
- * auto-snaps to Z (with a warning) so planar mechanics never leaves the plane.
+ * World-space axis of a joint. §4.5 — the 2D workspace is the X–Z plane, so
+ * every revolute/prismatic axis auto-snaps to +Y (the plane normal), with a
+ * warning, so planar mechanics never leaves the plane.
  */
 export function resolveJointAxis(joint: JointEntity, mode: ProjectMode): Vec3 {
   let axis: Vec3;
@@ -78,11 +79,11 @@ export function resolveJointAxis(joint: JointEntity, mode: ProjectMode): Vec3 {
   } else {
     axis = AXIS_VECTORS[(joint.axis as "x" | "y" | "z") ?? "z"] ?? Z_AXIS;
   }
-  if (mode === "2D" && Math.abs(axis[2]) < 0.999) {
+  if (mode === "2D" && Math.abs(axis[1]) < 0.999) {
     emitExprWarning(
-      `joint "${joint.name}" (${joint.kind}) axis auto-snapped to Z in 2D mode (§4.5)`,
+      `joint "${joint.name}" (${joint.kind}) axis auto-snapped to Y in 2D mode (§4.5)`,
     );
-    return Z_AXIS;
+    return Y_AXIS;
   }
   return axis;
 }

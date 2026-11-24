@@ -20,10 +20,10 @@ function fallingProject(): MechProject {
   sphere.mass = { value: 2, mode: "total" };
   sphere.linearDamping = 0;
   sphere.angularDamping = 0;
-  sphere.initial = { ...sphere.initial, position: [0, 10, 0] };
+  sphere.initial = { ...sphere.initial, position: [0, 0, 10] };
   project.bodies.push(sphere);
   project.world.fixedDt = 1 / 240;
-  project.world.gravity = [0, -9.81, 0];
+  project.world.gravity = [0, 0, -9.81];
   return project;
 }
 
@@ -33,27 +33,29 @@ function frictionProject(mu: number): MechProject {
     createDefaultStatic("ground", { friction: 0, restitution: 0 } as never),
   );
   const box = createDefaultBody("box");
-  box.faceFriction = [mu, mu, mu, mu, mu, mu];
+  // Only the bottom face (Z−) touches the ground; this also pins the face
+  // ordering to the Z-up box local frame (face 5 = −Z).
+  box.faceFriction = [0, 0, 0, 0, 0, mu];
   box.linearDamping = 0;
   box.angularDamping = 0;
-  box.initial = { ...box.initial, position: [0, 0.5, 0], velocity: [3, 0, 0] };
+  box.initial = { ...box.initial, position: [0, 0, 0.5], velocity: [3, 0, 0] };
   project.bodies.push(box);
   project.world.fixedDt = 1 / 240;
   return project;
 }
 
 describe("simulation — free fall", () => {
-  it("falling sphere matches y(t) = y₀ − ½gt²", () => {
+  it("falling sphere matches z(t) = z₀ − ½gt²", () => {
     const project = fallingProject();
     const engine = new PhysicsEngine(project, RAPIER);
     const t = 1;
     const steps = Math.round(t / engine.dt);
     for (let i = 0; i < steps; i++) engine.step();
 
-    const y = engine.bodies[0]!.translation().y;
+    const z = engine.bodies[0]!.translation().z;
     const expected = 10 - 0.5 * 9.81 * t * t;
     const drop = 10 - expected;
-    expect(Math.abs(y - expected)).toBeLessThan(0.01 * drop);
+    expect(Math.abs(z - expected)).toBeLessThan(0.01 * drop);
   });
 
   it("conserves mechanical energy within 0.5% over 1 s", () => {
@@ -100,30 +102,30 @@ describe("simulation — per-face friction (§2.2)", () => {
     const project = frictionProject(0.5);
     const engine = new PhysicsEngine(project, RAPIER);
     for (let i = 0; i < 240; i++) engine.step();
-    const y = engine.bodies[0]!.translation().y;
+    const z = engine.bodies[0]!.translation().z;
     // resting height ≈ H/2 (0.5), within the slab thickness band
-    expect(y).toBeGreaterThan(0.4);
-    expect(y).toBeLessThan(0.55);
+    expect(z).toBeGreaterThan(0.4);
+    expect(z).toBeLessThan(0.55);
   });
 });
 
 describe("simulation — 2D locking (§4.5)", () => {
-  it("2D bodies stay on the Z = 0 plane, rotate only about Z, but still move in XY", () => {
+  it("2D bodies stay on the Y = 0 plane, rotate only about Y, but still move in XZ", () => {
     const project = createDefaultProject("2d", "2D", { seedScene: false });
     const box = createDefaultBody("box");
     box.linearDamping = 0;
     box.angularDamping = 0;
-    box.initial = { ...box.initial, position: [0, 2, 0], angularVelocity: [1, 1, 1] };
+    box.initial = { ...box.initial, position: [0, 0, 2], angularVelocity: [1, 1, 1] };
     project.bodies.push(box);
     const engine = new PhysicsEngine(project, RAPIER);
     for (let i = 0; i < 120; i++) engine.step();
     const t = engine.bodies[0]!.translation();
     const r = engine.bodies[0]!.rotation();
-    // Falls in XY (0.5 s of gravity) …
-    expect(t.y).toBeLessThan(2 - 0.9); // well below the start height
-    // … but never leaves the Z = 0 plane and never tips out of plane.
-    expect(Math.abs(t.z)).toBeLessThan(1e-9);
+    // Falls in X–Z (0.5 s of gravity along -Z) …
+    expect(t.z).toBeLessThan(2 - 0.9);
+    // … but never leaves the Y = 0 plane and never tips out of plane.
+    expect(Math.abs(t.y)).toBeLessThan(1e-9);
     expect(Math.abs(r.x)).toBeLessThan(1e-9);
-    expect(Math.abs(r.y)).toBeLessThan(1e-9);
+    expect(Math.abs(r.z)).toBeLessThan(1e-9);
   });
 });

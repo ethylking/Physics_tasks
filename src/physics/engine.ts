@@ -95,7 +95,7 @@ function ellipsoidPoints(a: number, b: number, c: number): Float32Array {
   return new Float32Array(pts);
 }
 
-/** Local vertices of the wedge prism (trapezoid profile × depth). */
+/** Local vertices of the wedge prism (X–Z profile × Y depth, +Z up). */
 function wedgeVertices(W: number, H: number, D: number, thetaDeg: number): Float32Array {
   const hw = W / 2;
   const hh = H / 2;
@@ -103,10 +103,10 @@ function wedgeVertices(W: number, H: number, D: number, thetaDeg: number): Float
   const frontTop = Math.max(0.02 * H, H - W * Math.tan((thetaDeg * Math.PI) / 180)) - H / 2;
   const pts: number[] = [];
   for (const sx of [-1, 1]) {
-    const yTop = sx === -1 ? hh : frontTop;
-    for (const sz of [-1, 1]) {
-      pts.push(sx * hw, yTop, sz * hd);
-      pts.push(sx * hw, -hh, sz * hd);
+    const zTop = sx === -1 ? hh : frontTop;
+    for (const sy of [-1, 1]) {
+      pts.push(sx * hw, sy * hd, zTop);
+      pts.push(sx * hw, sy * hd, -hh);
     }
   }
   return new Float32Array(pts);
@@ -138,7 +138,8 @@ export class PhysicsEngine {
     const w = project.world;
     this.mode = project.meta.mode;
     this.dt = Math.max(1e-5, w.fixedDt);
-    this.gravityVec = project.meta.mode === "2D" ? [w.gravity[0], w.gravity[1], 0] : [...w.gravity] as Vec3;
+    // 2D workspace = X–Z plane (Y depth out of plane); project gravity into it.
+    this.gravityVec = project.meta.mode === "2D" ? [w.gravity[0], 0, w.gravity[2]] : [...w.gravity] as Vec3;
 
     this.world = new rapier.World({ x: this.gravityVec[0], y: this.gravityVec[1], z: this.gravityVec[2] });
     this.eventQueue = new rapier.EventQueue(true);
@@ -169,11 +170,10 @@ export class PhysicsEngine {
       if (mp.mass > maxDynamicMass) maxDynamicMass = mp.mass;
     }
 
-    // 2D mode: bodies attached to a revolute/prismatic/fixed joint keep their
-    // X/Y rotations ENABLED at the solver level — Rapier's impulse joints
-    // cannot drive their free axis when the body's other rotations are locked
-    // (verified empirically). The joint itself then enforces planar rotation;
-    // free bodies keep the §4.5 X/Y locks.
+    // 2D mode: jointed bodies may carry custom per-body locks, so they bypass
+    // the extra planar auto-lock and let the revolute/prismatic/fixed joint
+    // enforce planarity. Free bodies keep the §4.5 X/Z locks (rotation about
+    // the out-of-plane +Y axis remains free for everyone in 2D).
     const jointConstrained = new Set<string>();
     if (project.meta.mode === "2D") {
       for (const j of project.joints) {
@@ -210,8 +210,8 @@ export class PhysicsEngine {
   }
 
   setGravity(g: Vec3): void {
-    this.gravityVec = [...g] as Vec3;
-    this.world.gravity = { x: g[0], y: g[1], z: g[2] };
+    this.gravityVec = this.mode === "2D" ? [g[0], 0, g[2]] : ([...g] as Vec3);
+    this.world.gravity = { x: this.gravityVec[0], y: this.gravityVec[1], z: this.gravityVec[2] };
     // Energy reference shifts with gravity; recompute the baseline lazily.
     this.energy0 = null;
   }
@@ -223,6 +223,10 @@ export class PhysicsEngine {
     const len = Math.hypot(n[0], n[1], n[2]) || 1;
     const cd = new rapier.ColliderDesc(new rapier.HalfSpace({ x: n[0] / len, y: n[1] / len, z: n[2] / len }));
     cd.setFriction(stat.friction).setRestitution(stat.restitution);
+    // The half-space is infinite through the origin; offset its collider so the
+    // plane passes through the entity's position (movable statics).
+    const p = stat.position ?? [0, 0, 0];
+    if (p[0] !== 0 || p[1] !== 0 || p[2] !== 0) cd.setTranslation(p[0], p[1], p[2]);
     this.world.createCollider(cd, rb);
   }
 
@@ -389,18 +393,18 @@ export class PhysicsEngine {
       );
     }
 
-    // §4.5 — 2D-in-3D locking: force Z-translation and X/Y-rotation locks in 2D,
-    // leave X/Y translation and Z rotation free (unless the user locked them).
-    // Joint-attached bodies skip the X/Y rotation locks (the joint enforces
-    // planarity; see the `jointConstrained` note in the constructor).
+    // §4.5 — 2D is the vertical X–Z plane: lock Y translation and X/Z rotation,
+    // leave X/Z translation and Y rotation free (unless the user locked them).
+    // Joint-attached bodies keep the same planar locks; revolute/prismatic
+    // freedom in 2D is about +Y (see `resolveJointAxis`).
     const locks = body.locks;
     const planar = mode === "2D" && !(jointConstrained && jointConstrained.has(body.id));
     desc.translationsEnabledX = !locks.translate[0];
-    desc.translationsEnabledY = !locks.translate[1];
-    desc.translationsEnabledZ = !(mode === "2D" || locks.translate[2]);
+    desc.translationsEnabledY = !(mode === "2D" || locks.translate[1]);
+    desc.translationsEnabledZ = !locks.translate[2];
     desc.rotationsEnabledX = !(planar || locks.rotate[0]);
-    desc.rotationsEnabledY = !(planar || locks.rotate[1]);
-    desc.rotationsEnabledZ = !locks.rotate[2];
+    desc.rotationsEnabledY = !locks.rotate[1];
+    desc.rotationsEnabledZ = !(planar || locks.rotate[2]);
 
     // Milestone 4 — contact-force extraction for the N / F_f vector overlays:
     // dynamic bodies must never sleep (so resting contacts keep reporting).
@@ -447,13 +451,15 @@ export class PhysicsEngine {
       const D = Math.max(1e-4, g.box?.D ?? 1);
       const eps = 0.02 * Math.min(W, H, D);
       const ff = body.faceFriction;
+      // Faces are ordered X+, X−, Y+, Y−, Z+, Z− in the box local frame:
+      // W along X, D along Y (depth), H along Z (up).
       const faces: Array<{ he: [number, number, number]; offset: [number, number, number]; mu: number }> = [
-        { he: [eps / 2, H / 2, D / 2], offset: [W / 2, 0, 0], mu: ff[0] ?? body.friction },
-        { he: [eps / 2, H / 2, D / 2], offset: [-W / 2, 0, 0], mu: ff[1] ?? body.friction },
-        { he: [W / 2, eps / 2, D / 2], offset: [0, H / 2, 0], mu: ff[2] ?? body.friction },
-        { he: [W / 2, eps / 2, D / 2], offset: [0, -H / 2, 0], mu: ff[3] ?? body.friction },
-        { he: [W / 2, H / 2, eps / 2], offset: [0, 0, D / 2], mu: ff[4] ?? body.friction },
-        { he: [W / 2, H / 2, eps / 2], offset: [0, 0, -D / 2], mu: ff[5] ?? body.friction },
+        { he: [eps / 2, D / 2, H / 2], offset: [W / 2, 0, 0], mu: ff[0] ?? body.friction },
+        { he: [eps / 2, D / 2, H / 2], offset: [-W / 2, 0, 0], mu: ff[1] ?? body.friction },
+        { he: [W / 2, eps / 2, H / 2], offset: [0, D / 2, 0], mu: ff[2] ?? body.friction },
+        { he: [W / 2, eps / 2, H / 2], offset: [0, -D / 2, 0], mu: ff[3] ?? body.friction },
+        { he: [W / 2, D / 2, eps / 2], offset: [0, 0, H / 2], mu: ff[4] ?? body.friction },
+        { he: [W / 2, D / 2, eps / 2], offset: [0, 0, -H / 2], mu: ff[5] ?? body.friction },
       ];
       faces.forEach((face, i) => {
         const cd = rapier.ColliderDesc.cuboid(...face.he)
@@ -471,7 +477,8 @@ export class PhysicsEngine {
     let cd: RAPIER.ColliderDesc | null = null;
     switch (body.kind) {
       case "box":
-        cd = rapier.ColliderDesc.cuboid((g.box?.W ?? 1) / 2, (g.box?.H ?? 1) / 2, (g.box?.D ?? 1) / 2);
+        // W → X, D → Y (depth), H → Z (up).
+        cd = rapier.ColliderDesc.cuboid((g.box?.W ?? 1) / 2, (g.box?.D ?? 1) / 2, (g.box?.H ?? 1) / 2);
         break;
       case "sphere":
         cd = rapier.ColliderDesc.ball(g.sphere?.R ?? 0.5);
@@ -479,9 +486,14 @@ export class PhysicsEngine {
       case "ellipsoid":
         cd = rapier.ColliderDesc.convexHull(ellipsoidPoints(g.ellipsoid?.a ?? 0.5, g.ellipsoid?.b ?? 0.5, g.ellipsoid?.c ?? 0.5));
         break;
-      case "cylinder":
+      case "cylinder": {
+        // Rapier's cylinder axis is local +Y; rotate the collider so the
+        // cylinder axis follows the schema's +Z height. R stays in X–Y.
         cd = rapier.ColliderDesc.cylinder((g.cylinder?.H ?? 1) / 2, g.cylinder?.R ?? 0.5);
+        const s = Math.SQRT1_2;
+        cd.setRotation({ x: s, y: 0, z: 0, w: s });
         break;
+      }
       case "rod":
         cd = rapier.ColliderDesc.cuboid((g.rod?.L ?? 1) / 2, (g.rod?.thickness ?? 0.05) / 2, (g.rod?.thickness ?? 0.05) / 2);
         break;

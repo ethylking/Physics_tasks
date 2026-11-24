@@ -21,17 +21,17 @@ function sphereProject(): { project: MechProject; body: RigidBodyEntity } {
   body.geometry = { sphere: { R: 0.5, shell: false } };
   body.mass = { value: 2, mode: "total" };
   body.name = "Probe";
-  body.initial = { ...body.initial, position: [1, 2, 0] };
+  body.initial = { ...body.initial, position: [1, 0, 2] };
   return { project, body };
 }
 
 const SLICE: BodySnapshotSlice = {
-  position: [1, 2, 0],
+  position: [1, 0, 2],
   rotation: [0, 0, 0, 1],
-  velocity: [3, 4, 0],
+  velocity: [3, 0, 4],
   angularVelocity: [0, 0, 0],
-  accel: [0, -9.81, 0],
-  netForce: [0, -19.62, 0],
+  accel: [0, 0, -9.81],
+  netForce: [0, 0, -19.62],
 };
 
 describe("hoverTelemetry — data building", () => {
@@ -42,10 +42,10 @@ describe("hoverTelemetry — data building", () => {
     expect(t.name).toBe("Probe");
     expect(t.kind).toBe("sphere");
     expect(t.mass).toBe(2);
-    expect(t.position).toEqual([1, 2, 0]);
-    expect(t.velocity).toEqual([3, 4, 0]);
+    expect(t.position).toEqual([1, 0, 2]);
+    expect(t.velocity).toEqual([3, 0, 4]);
     expect(t.speed).toBeCloseTo(5, 9);
-    expect(t.accel).toEqual([0, -9.81, 0]);
+    expect(t.accel).toEqual([0, 0, -9.81]);
     expect(t.accelMagnitude).toBeCloseTo(9.81, 6);
     expect(t.angularVelocity).toEqual([0, 0, 0]);
     expect(t.angularSpeed).toBe(0);
@@ -53,7 +53,7 @@ describe("hoverTelemetry — data building", () => {
     expect(t.Ek).toBeCloseTo(0.5 * 2 * 25, 9);
     // Ep = −m g·r_CM = 2 · 9.81 · 2 (matches the engine convention).
     expect(t.Ep).toBeCloseTo(2 * 9.81 * 2, 6);
-    expect(t.netForce).toEqual([0, -19.62, 0]);
+    expect(t.netForce).toEqual([0, 0, -19.62]);
   });
 
   it("includes rotational kinetic energy about the principal axes", () => {
@@ -72,7 +72,7 @@ describe("hoverTelemetry — data building", () => {
     const { project, body } = sphereProject();
     body.initial = { ...body.initial, velocity: [1, 0, 0] };
     const t = buildBodyTelemetry(body, project, null);
-    expect(t.position).toEqual([1, 2, 0]);
+    expect(t.position).toEqual([1, 0, 2]);
     expect(t.velocity).toEqual([1, 0, 0]);
     expect(t.accel).toEqual([0, 0, 0]);
     expect(t.netForce).toEqual([0, 0, 0]);
@@ -128,7 +128,7 @@ describe("hoverTelemetry — HUD card", () => {
       transport: "stopped",
       gizmoMode: "translate",
       dirty: false,
-      gravityZBefore2D: 0,
+      gravityYBefore2D: 0,
     });
   });
 

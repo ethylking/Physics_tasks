@@ -34,10 +34,14 @@ export function BodyEntity({ body }: { body: RigidBodyEntity }) {
       ? [num(g.ellipsoid?.a, 0.5), num(g.ellipsoid?.b, 0.5), num(g.ellipsoid?.c, 0.5)]
       : [1, 1, 1];
 
+  // Three's cylinder axis is local +Y; rotate the mesh so H follows +Z (up).
+  const meshRotation: Vec3 | undefined = body.kind === "cylinder" ? [Math.PI / 2, 0, 0] : undefined;
+
   const renderGeometry = () => {
     switch (body.kind) {
       case "box":
-        return <boxGeometry args={[num(g.box?.W, 1), num(g.box?.H, 1), num(g.box?.D, 1)]} />;
+        // W → X, D → Y (depth), H → Z (up).
+        return <boxGeometry args={[num(g.box?.W, 1), num(g.box?.D, 1), num(g.box?.H, 1)]} />;
       case "sphere":
         return <sphereGeometry args={[num(g.sphere?.R, 0.5), 48, 32]} />;
       case "ellipsoid":
@@ -62,7 +66,7 @@ export function BodyEntity({ body }: { body: RigidBodyEntity }) {
 
   return (
     <EntityGroup id={body.id} position={body.initial.position} rotation={body.initial.rotation}>
-      <mesh castShadow receiveShadow geometry={wedgeGeometry ?? undefined} scale={scale}>
+      <mesh castShadow receiveShadow geometry={wedgeGeometry ?? undefined} scale={scale} rotation={meshRotation}>
         {renderGeometry()}
         <meshStandardMaterial
           color={color}

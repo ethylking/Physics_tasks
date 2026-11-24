@@ -27,7 +27,7 @@ export function TubeLine({ points, radius = 0.02, color = "#e4e4e7" }: { points:
   );
 }
 
-/** Force arrow along +Y from its base point (constant direction in M2). */
+/** Force arrow along +Z (up) from its base point (constant direction in M2). */
 export function ArrowMesh({
   position,
   color = "#ef4444",
@@ -41,11 +41,11 @@ export function ArrowMesh({
 }) {
   return (
     <group position={position}>
-      <mesh position={[0, length / 2, 0]}>
+      <mesh position={[0, 0, length / 2]} rotation={[Math.PI / 2, 0, 0]}>
         <cylinderGeometry args={[thickness, thickness, length, 12]} />
         <meshBasicMaterial color={color} />
       </mesh>
-      <mesh position={[0, length + 0.11, 0]}>
+      <mesh position={[0, 0, length + 0.11]} rotation={[Math.PI / 2, 0, 0]}>
         <coneGeometry args={[thickness * 4, 0.24, 16]} />
         <meshBasicMaterial color={color} />
       </mesh>
@@ -85,7 +85,8 @@ export function HelixSpring({
       }
       getPoint(t: number, target: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
         const angle = t * Math.PI * 2 * COILS;
-        const up = Math.abs(this.d.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+        // Z-up: use +Z as the stable reference unless the spring is vertical.
+        const up = Math.abs(this.d.z) < 0.99 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
         const u = new THREE.Vector3().crossVectors(this.d, up).normalize();
         const v = new THREE.Vector3().crossVectors(u, this.d).normalize();
         return target

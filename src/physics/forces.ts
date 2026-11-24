@@ -66,9 +66,9 @@ export interface ForceApplication {
  * Returns null when the force is disabled or has no target body.
  *
  * - `external`: F evaluated in world axes (rotated by the body quaternion when
- *   `localFrame`), applied at the world anchor. In 2D mode F_z = 0 (§4.5).
+ *   `localFrame`), applied at the world anchor. In 2D mode F_y = 0 (§4.5).
  * - `torque`: M evaluated in world axes (rotated when `localFrame`); in 2D mode
- *   only the Z component survives (§4.5).
+ *   only the Y component survives (§4.5).
  * - `thruster`: force fixed in the body's local frame at the local anchor —
  *   it rotates continuously with the rigid body.
  */
@@ -115,7 +115,8 @@ export function evaluateForceApplication(
   if (force.kind === "torque") {
     let torque = raw;
     if (force.localFrame) torque = rotateVec3ByQuat(torque, rotation);
-    if (mode === "2D") torque = [0, 0, torque[2]];
+    // 2D workspace = X–Z plane → only the out-of-plane Y torque survives.
+    if (mode === "2D") torque = [0, torque[1], 0];
     return { force: [0, 0, 0], anchor, torque };
   }
 
@@ -125,7 +126,7 @@ export function evaluateForceApplication(
   if (force.kind === "thruster" || force.localFrame) {
     world = rotateVec3ByQuat(world, rotation);
   }
-  if (mode === "2D") world = [world[0], world[1], 0];
+  if (mode === "2D") world = [world[0], 0, world[2]];
   return { force: world, anchor, torque: [0, 0, 0] };
 }
 
@@ -227,7 +228,7 @@ export function evaluateSpringApplication(
   const L = Math.hypot(d[0], d[1], d[2]);
   if (L < 1e-9) return null;
   let dir: Vec3 = [d[0] / L, d[1] / L, d[2] / L];
-  if (mode === "2D") dir = [dir[0], dir[1], 0];
+  if (mode === "2D") dir = [dir[0], 0, dir[2]];
 
   const vRel: Vec3 = [sideB.v[0] - sideA.v[0], sideB.v[1] - sideA.v[1], sideB.v[2] - sideA.v[2]];
   const fScalar =
@@ -235,7 +236,7 @@ export function evaluateSpringApplication(
     spring.damping * (vRel[0] * dir[0] + vRel[1] * dir[1] + vRel[2] * dir[2]);
 
   let forceVec: Vec3 = [fScalar * dir[0], fScalar * dir[1], fScalar * dir[2]];
-  if (mode === "2D") forceVec = [forceVec[0], forceVec[1], 0];
+  if (mode === "2D") forceVec = [forceVec[0], 0, forceVec[2]];
   return { force: forceVec, anchorA: sideA.p, anchorB: sideB.p, length: L, dir };
 }
 

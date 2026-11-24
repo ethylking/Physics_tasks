@@ -25,7 +25,8 @@ import type {
 
 export function createDefaultWorldSettings(): WorldSettings {
   return {
-    gravity: [0, -9.81, 0],
+    // Right-handed Z-up world: X/Y span the horizontal ground plane, +Z is up.
+    gravity: [0, 0, -9.81],
     timeScale: 1,
     fixedDt: 1 / 120,
     solverIterations: 4,
@@ -39,14 +40,16 @@ export function createDefaultWorldSettings(): WorldSettings {
 export function createDefaultCamera(): CameraState {
   return {
     mode: "perspective",
-    position: [6, 4, 8],
-    target: [0, 1, 0],
-    up: [0, 1, 0],
+    position: [8, -8, 6],
+    target: [0, 0, 0.5],
+    up: [0, 0, 1],
     fov: 50,
     zoom: 1,
   };
 }
 
+// Geometry axis convention (right-handed, +Z up): box H is vertical and D is
+// depth; cylinder/disk axis is +Z; ellipsoid c is vertical.
 const BODY_GEOMETRY: Tier1BodyGeometryMap = {
   box: { W: 1, H: 1, D: 1 },
   sphere: { R: 0.5, shell: false },
@@ -55,6 +58,9 @@ const BODY_GEOMETRY: Tier1BodyGeometryMap = {
   rod: { L: 1, thickness: 0.05 },
   wedge: { thetaDeg: 30, W: 1, H: 0.5, D: 1, dynamic: false },
 };
+
+/** Default geometry of a palette-spawned pulley (a thin cylinder disk). */
+export const PULLEY_GEOMETRY = { R: 0.5, H: 0.08, hollow: false };
 
 const BODY_COLORS: Record<Tier1BodyKind, string> = {
   box: "#38bdf8",
@@ -105,8 +111,8 @@ export function createDefaultStatic(kind: "wall" | "ground", partial: Partial<St
     kind,
     plane:
       kind === "ground"
-        ? { normal: [0, 1, 0], extent: [20, 20] }
-        : { normal: [0, 0, 1], extent: [10, 10] },
+        ? { normal: [0, 0, 1], extent: [20, 20] }
+        : { normal: [1, 0, 0], extent: [10, 10] },
     friction: 0.8,
     restitution: 0.2,
     ccd: true,
@@ -194,13 +200,13 @@ export function createDefaultMeter<K extends Tier1MeterKind>(
 }
 
 /**
- * §4.5 — 2D-in-3D locking: Z translation and X/Y rotation locked at the solver
- * level, so planar mechanics never drift out of plane.
+ * §4.5 — 2D-in-3D locking: the 2D workspace is the vertical X–Z plane, so Y
+ * translation and X/Z rotations are locked at the solver level. Z stays up.
  */
 export function applyModeLocks(bodies: RigidBodyEntity[], mode: ProjectMode): void {
   if (mode !== "2D") return;
   for (const body of bodies) {
-    body.locks = { translate: [false, false, true], rotate: [true, true, false] };
+    body.locks = { translate: [false, true, false], rotate: [true, false, true] };
   }
 }
 
@@ -224,7 +230,7 @@ export function createDefaultProject(
     statics.push(createDefaultStatic("ground"));
     const box = createDefaultBody("box");
     box.name = "Box 1";
-    box.initial = { ...box.initial, position: [0, 1, 0] };
+    box.initial = { ...box.initial, position: [0, 0, 0.5] };
     bodies.push(box);
   }
   applyModeLocks(bodies, mode);
@@ -258,8 +264,8 @@ export function zeroVec3(): Vec3 {
 }
 
 /**
- * Half the vertical extent of a body kind (used to lift freshly spawned bodies
- * onto the placement surface so they rest on it rather than intersect it).
+ * Half the vertical extent of a body kind with DEFAULT geometry (used for ghost
+ * previews and the placement lift). `pulley` is a thin cylinder disk.
  */
 export function halfHeightOf(kind: string): number {
   switch (kind) {
@@ -268,13 +274,39 @@ export function halfHeightOf(kind: string): number {
     case "sphere":
       return BODY_GEOMETRY.sphere.R;
     case "ellipsoid":
-      return BODY_GEOMETRY.ellipsoid.b;
+      return BODY_GEOMETRY.ellipsoid.c;
     case "cylinder":
       return BODY_GEOMETRY.cylinder.H / 2;
+    case "pulley":
+      return PULLEY_GEOMETRY.H / 2;
     case "rod":
       return BODY_GEOMETRY.rod.thickness / 2;
     case "wedge":
       return BODY_GEOMETRY.wedge.H / 2;
+    default:
+      return 0;
+  }
+}
+
+/**
+ * Half the vertical extent of a CONCRETE body, read from its actual geometry
+ * (a pulley is a cylinder with a custom thin H, so kind-based defaults lie).
+ */
+export function bodyHalfHeight(body: RigidBodyEntity): number {
+  const g = body.geometry;
+  switch (body.kind) {
+    case "box":
+      return (g.box?.H ?? BODY_GEOMETRY.box.H) / 2;
+    case "sphere":
+      return g.sphere?.R ?? BODY_GEOMETRY.sphere.R;
+    case "ellipsoid":
+      return g.ellipsoid?.c ?? BODY_GEOMETRY.ellipsoid.c;
+    case "cylinder":
+      return (g.cylinder?.H ?? BODY_GEOMETRY.cylinder.H) / 2;
+    case "rod":
+      return (g.rod?.thickness ?? BODY_GEOMETRY.rod.thickness) / 2;
+    case "wedge":
+      return (g.wedge?.H ?? BODY_GEOMETRY.wedge.H) / 2;
     default:
       return 0;
   }

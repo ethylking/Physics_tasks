@@ -15,8 +15,9 @@ A desktop physics sandbox and educational simulation tool designed for universit
 ## 3. Core Modes & Camera Controls
 * **Dual-Mode Workspace (Tabs):**
   * **3D Mode:** Full 3D space using `PerspectiveCamera` and `OrbitControls` (pan, zoom, rotate around target).
-  * **2D Mode:** Planar mechanics workspace using `OrthographicCamera` and `MapControls` (pan, zoom only; rotation locked). Physics bodies in 2D mode have Z-axis translation and X/Y-axis rotations strictly locked at the solver level.
-* **Global Environment Settings:** Adjustable world gravity vector $\vec{g} = (g_x, g_y, g_z)$ (default $(0, -9.81, 0)$) and simulation time-scale / fixed $\Delta t$ (e.g., $1/120\text{s}$ or $1/240\text{s}$).
+  * **Coordinate System:** Right-handed axes with a horizontal X–Y ground plane and +Z pointing up.
+  * **2D Mode:** Planar X–Z mechanics workspace using `OrthographicCamera` and `MapControls` (pan, zoom only; rotation locked). Physics bodies in 2D mode have Y-axis translation and X/Z-axis rotations strictly locked at the solver level.
+* **Global Environment Settings:** Adjustable world gravity vector $\vec{g} = (g_x, g_y, g_z)$ (default $(0, 0, -9.81)$) and simulation time-scale / fixed $\Delta t$ (e.g., $1/120\text{s}$ or $1/240\text{s}$).
 
 ## 4. Object Creation & Manipulation UX
 * **Spawn Palette & Ghost Preview:** Clicking an item in the creation toolbar attaches a semi-transparent 3D/2D "ghost preview" to the mouse cursor (raycasted onto the ground plane, grid, or snap points). Left-clicking instantiates the object.

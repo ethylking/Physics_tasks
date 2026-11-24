@@ -9,7 +9,7 @@ import { useSceneStore } from "../../../stores/sceneStore";
 import { createDefaultProject } from "../../../core/defaults";
 import type { MechProject, RigidBodyEntity } from "../../../core/types";
 
-const FACE_LABELS = ["+X (right)", "-X (left)", "+Y (top)", "-Y (bottom)", "+Z (front)", "-Z (back)"];
+const FACE_LABELS = ["+X (right)", "-X (left)", "+Y (back)", "-Y (front)", "+Z (top)", "-Z (bottom)"];
 
 function loadScene(project: MechProject, selectedId: string) {
   useSceneStore.setState({
@@ -21,7 +21,7 @@ function loadScene(project: MechProject, selectedId: string) {
     transport: "stopped",
     gizmoMode: "translate",
     dirty: false,
-    gravityZBefore2D: 0,
+    gravityYBefore2D: 0,
   });
 }
 
@@ -64,7 +64,7 @@ describe("Inspector", () => {
   it("editing per-face friction writes the faceFriction array", () => {
     render(<Inspector />);
     fireEvent.change(screen.getByLabelText("+X (right) friction"), { target: { value: "0.9" } });
-    fireEvent.change(screen.getByLabelText("-Y (bottom) friction"), { target: { value: "0.2" } });
+    fireEvent.change(screen.getByLabelText("-Y (front) friction"), { target: { value: "0.2" } });
 
     const body = selectedBox();
     expect(body.faceFriction).toHaveLength(6);

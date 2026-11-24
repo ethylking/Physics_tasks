@@ -28,16 +28,18 @@ import type {
 } from "../core/types";
 import {
   applyModeLocks,
+  bodyHalfHeight,
   createDefaultBody,
   createDefaultForce,
   createDefaultJoint,
   createDefaultMeter,
   createDefaultRope,
   createDefaultStatic,
-  halfHeightOf,
+  PULLEY_GEOMETRY,
 } from "../core/defaults";
 import { eulerDegToQuat, quatToEulerDeg, worldToLocal } from "../math/rotation";
 import type { SnapPoint } from "../render/gizmos/snapping";
+import { entityWorldPosition, translateEntityByDelta } from "../render/entities/positions";
 import { useProjectStore } from "./projectStore";
 
 export type EntityCategory = "bodies" | "statics" | "joints" | "forces" | "ropes" | "meters";
@@ -111,11 +113,17 @@ interface SceneState {
   selectedId: string | null;
   hoveredId: string | null;
   tool: SpawnTool | null;
+  /**
+   * Entity that shows the post-creation axis-arrow controls. Set by spawning,
+   * cleared as soon as the user selects something else, picks a tool, or
+   * deletes/resets the scene.
+   */
+  axisArrowsId: string | null;
   transport: TransportStatus;
   gizmoMode: GizmoMode;
   dirty: boolean;
-  /** Z gravity before switching to 2D, restored when returning to 3D. */
-  gravityZBefore2D: number;
+  /** Y gravity before switching to 2D, restored when returning to 3D. */
+  gravityYBefore2D: number;
 
   loadFromProject: (project: MechProject) => void;
   resetToInitial: () => void;
@@ -148,10 +156,11 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
   selectedId: null,
   hoveredId: null,
   tool: null,
+  axisArrowsId: null,
   transport: "stopped",
   gizmoMode: "translate",
   dirty: false,
-  gravityZBefore2D: 0,
+  gravityYBefore2D: 0,
 
   loadFromProject: (project) => {
     const prevSelected = get().selectedId;
@@ -162,6 +171,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
       dirty: false,
       selectedId: stillExists ? prevSelected : null,
       hoveredId: null,
+      axisArrowsId: null,
     });
   },
 
@@ -176,6 +186,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
       transport: "stopped",
       hoveredId: null,
       tool: null,
+      axisArrowsId: null,
       selectedId: selected && findEntityInProject(restored, selected) ? selected : null,
     });
   },
@@ -188,9 +199,15 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
     useProjectStore.getState().replaceCurrentProject(project);
   },
 
-  setSelected: (id) => set({ selectedId: id }),
+  setSelected: (id) =>
+    set((state) => ({
+      selectedId: id,
+      // Re-selecting the freshly spawned object keeps its axis arrows;
+      // selecting anything else dismisses them.
+      axisArrowsId: id !== null && state.axisArrowsId === id ? id : null,
+    })),
   setHovered: (id) => set({ hoveredId: id }),
-  setTool: (tool) => set({ tool }),
+  setTool: (tool) => set((state) => ({ tool, axisArrowsId: tool ? null : state.axisArrowsId })),
   setTransport: (status) => set({ transport: status }),
   setGizmoMode: (mode) => set({ gizmoMode: mode }),
   setDirty: (dirty) => set({ dirty }),
@@ -200,15 +217,16 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
     if (!project || project.meta.mode === mode) return;
     const world = { ...project.world };
     if (mode === "2D") {
-      set({ gravityZBefore2D: world.gravity[2] });
-      world.gravity = [world.gravity[0], world.gravity[1], 0];
+      // 2D workspace = X–Z plane: Y is out of plane.
+      set({ gravityYBefore2D: world.gravity[1] });
+      world.gravity = [world.gravity[0], 0, world.gravity[2]];
     } else {
-      world.gravity = [world.gravity[0], world.gravity[1], get().gravityZBefore2D];
+      world.gravity = [world.gravity[0], get().gravityYBefore2D, world.gravity[2]];
     }
     // §4.5 — 2D-in-3D locking on entry, free motion restored on exit.
     const locks2d = {
-      translate: [false, false, true] as [boolean, boolean, boolean],
-      rotate: [true, true, false] as [boolean, boolean, boolean],
+      translate: [false, true, false] as [boolean, boolean, boolean],
+      rotate: [true, false, true] as [boolean, boolean, boolean],
     };
     const locksFree = {
       translate: [false, false, false] as [boolean, boolean, boolean],
@@ -237,6 +255,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
       project: { ...project, [category]: arr } as MechProject,
       dirty: true,
       selectedId: entity.id,
+      axisArrowsId: entity.id,
     });
   },
 
@@ -260,26 +279,62 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
       dirty: true,
       selectedId: get().selectedId === id ? null : get().selectedId,
       hoveredId: get().hoveredId === id ? null : get().hoveredId,
+      axisArrowsId: get().axisArrowsId === id ? null : get().axisArrowsId,
     });
   },
 
   writeTransform: (id, position, rotation) => {
     const project = get().project;
     const found = findEntityInProject(project, id);
-    if (!found || !project || found.category !== "bodies") return;
-    const body = found.entity as RigidBodyEntity;
-    let pos: Vec3 = position;
-    let rot: Quat = rotation;
-    if (project.meta.mode === "2D") {
-      // §4.5 — keep 2D bodies locked to the XY plane and to Z-rotation.
-      pos = [position[0], position[1], 0];
-      const deg = quatToEulerDeg(rotation);
-      rot = eulerDegToQuat([0, 0, deg[2]]);
+    if (!found || !project) return;
+    const is2d = project.meta.mode === "2D";
+    const clampPos = (p: Vec3): Vec3 => (is2d ? [p[0], 0, p[2]] : p);
+
+    // Bodies: write absolute position + rotation (with §4.5 2D clamps).
+    if (found.category === "bodies") {
+      const body = found.entity as RigidBodyEntity;
+      let pos: Vec3 = clampPos(position);
+      let rot: Quat = rotation;
+      if (is2d) {
+        const deg = quatToEulerDeg(rotation);
+        rot = eulerDegToQuat([0, deg[1], 0]);
+      }
+      const updated = { ...body, initial: { ...body.initial, position: pos, rotation: rot } };
+      const arr = [...(project.bodies as RigidBodyEntity[])];
+      arr[found.index] = updated;
+      set({ project: { ...project, bodies: arr }, dirty: true });
+      return;
     }
-    const updated = { ...body, initial: { ...body.initial, position: pos, rotation: rot } };
-    const arr = [...(project.bodies as RigidBodyEntity[])];
-    arr[found.index] = updated;
-    set({ project: { ...project, bodies: arr }, dirty: true });
+
+    // Statics & meters own an optional `position` field — write it absolutely.
+    if (found.category === "statics") {
+      const stat = found.entity as StaticEntity;
+      const updated = { ...stat, position: clampPos(position) };
+      const arr = [...(project.statics as StaticEntity[])];
+      arr[found.index] = updated;
+      set({ project: { ...project, statics: arr }, dirty: true });
+      return;
+    }
+    if (found.category === "meters") {
+      const meter = found.entity as MeterEntity;
+      const updated = { ...meter, position: clampPos(position) };
+      const arr = [...(project.meters as MeterEntity[])];
+      arr[found.index] = updated;
+      set({ project: { ...project, meters: arr }, dirty: true });
+      return;
+    }
+
+    // Connectors: translate their defining anchors by the world delta.
+    const current = entityWorldPosition(project, found.category, found.entity);
+    const delta: Vec3 = [
+      position[0] - current[0],
+      is2d ? 0 : position[1] - current[1],
+      position[2] - current[2],
+    ];
+    const updated = translateEntityByDelta(project, found.category, found.entity, delta);
+    const arr = [...(project[found.category] as unknown as SceneEntity[])];
+    arr[found.index] = updated as SceneEntity;
+    set({ project: { ...project, [found.category]: arr } as MechProject, dirty: true });
   },
 
   spawnFromTool: (tool, surfacePoint, snap) => {
@@ -296,7 +351,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
           // A pulley is a rigid body (Milestone 5 adds the revolute joint + I).
           const pulley = createDefaultBody("cylinder");
           pulley.name = "Pulley";
-          pulley.geometry = { cylinder: { R: 0.5, H: 0.08, hollow: false } };
+          pulley.geometry = { cylinder: { ...PULLEY_GEOMETRY } };
           pulley.appearance = { color: "#f59e0b", opacity: 1 };
           entity = pulley;
         } else {
@@ -304,9 +359,13 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
         }
         break;
       }
-      case "statics":
+      case "statics": {
         entity = createDefaultStatic(tool.kind === "ground" ? "ground" : "wall");
+        // Statics carry an optional `position`; place the plane so it passes
+        // through the placement point instead of always sitting at the origin.
+        (entity as StaticEntity).position = snap ? snap.point : surfacePoint;
         break;
+      }
       case "joints":
         entity = createDefaultJoint(tool.kind as Tier1JointKind);
         break;
@@ -325,13 +384,23 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
 
     entity.name = nextEntityName(project, tool.category, entity.name);
 
+    // In 2D the plane normal is +Y; make new joints default to that axis so
+    // the inspector and solver agree before the auto-snap warning can fire.
+    if (mode === "2D" && tool.category === "joints") {
+      const joint = entity as JointEntity;
+      if (joint.kind === "revolute" || joint.kind === "prismatic") {
+        joint.axis = "y";
+        joint.axisVec = [0, 1, 0];
+      }
+    }
+
     if (tool.category === "bodies") {
       const body = entity as RigidBodyEntity;
       const base = snap ? snap.point : surfacePoint;
-      const half = halfHeightOf(body.kind);
+      const half = bodyHalfHeight(body);
       body.initial = {
         ...body.initial,
-        position: [base[0], base[1] + half, mode === "2D" ? 0 : base[2]],
+        position: [base[0], mode === "2D" ? 0 : base[1], base[2] + half],
       };
       applyModeLocks([body], mode);
     } else if (tool.category !== "statics") {
@@ -343,6 +412,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
       project: { ...project, [tool.category]: arr } as MechProject,
       dirty: true,
       selectedId: entity.id,
+      axisArrowsId: entity.id,
     });
     return entity.id;
   },
@@ -363,7 +433,7 @@ function attachConnector(
 ): void {
   const point = snap ? snap.point : surfacePoint;
   let local = owner ? worldToLocal(point, owner.initial.position, owner.initial.rotation) : point;
-  if (mode === "2D") local = [local[0], local[1], 0];
+  if (mode === "2D") local = [local[0], 0, local[2]];
 
   switch (category) {
     case "joints": {

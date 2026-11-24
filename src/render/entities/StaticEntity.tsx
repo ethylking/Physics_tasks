@@ -1,5 +1,5 @@
 // render/entities/StaticEntity.tsx — walls & ground in the 3D viewport.
-// Statics are pinned at the world origin (they carry no position field).
+// Statics are infinite planes anchored at `stat.position` (default: origin).
 
 import { useMemo } from "react";
 import * as THREE from "three";
@@ -29,13 +29,21 @@ export function StaticEntity({ stat }: { stat: StaticEntityType }) {
   const h = num(stat.plane.extent[1], isGround ? 20 : 10);
 
   return (
-    <EntityGroup id={stat.id} position={ORIGIN} rotation={rotation}>
+    <EntityGroup id={stat.id} position={stat.position ?? ORIGIN} rotation={rotation}>
       <mesh receiveShadow>
         <planeGeometry args={[w, h]} />
         <meshStandardMaterial
           color={highlighted ? "#22d3ee" : color}
           transparent
-          opacity={highlighted ? 0.9 : opacity}
+          // A selected ground must stay see-through (it is a huge plane and
+          // would otherwise cover the whole scene with the highlight tint).
+          opacity={highlighted ? (isGround ? 0.1 : 0.9) : opacity}
+          depthWrite={!(highlighted && isGround)}
+          // The ground is exactly coplanar with the grid at z = 0 — push its
+          // fragments slightly behind so the grid wins instead of z-fighting.
+          polygonOffset={isGround}
+          polygonOffsetFactor={1}
+          polygonOffsetUnits={1}
           side={THREE.DoubleSide}
         />
       </mesh>

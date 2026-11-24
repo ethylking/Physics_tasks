@@ -65,10 +65,10 @@ describe("ProjectManager", () => {
     };
     expect(saved.schemaVersion).toBe(2);
     expect(saved.meta.mode).toBe("2D");
-    expect(saved.world.gravity).toEqual([0, -9.81, 0]);
-    // §4.5 — 2D-in-3D locking applied to seeded bodies
-    expect(saved.bodies[0]?.locks.translate).toEqual([false, false, true]);
-    expect(saved.bodies[0]?.locks.rotate).toEqual([true, true, false]);
+    expect(saved.world.gravity).toEqual([0, 0, -9.81]);
+    // §4.5 — 2D-in-3D locking applied to seeded bodies (X–Z workspace)
+    expect(saved.bodies[0]?.locks.translate).toEqual([false, true, false]);
+    expect(saved.bodies[0]?.locks.rotate).toEqual([true, false, true]);
 
     // The new project appears in the list and is opened in the editor.
     expect(await screen.findByRole("heading", { name: "Inclined plane" })).toBeInTheDocument();

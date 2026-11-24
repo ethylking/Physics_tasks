@@ -156,7 +156,7 @@ describe("forces — torque", () => {
 describe("forces — singular math strings (§4.1)", () => {
   it("1/0 and log(-1) warn, evaluate to 0, and never crash the engine", () => {
     const { project, body } = isolatedProject("3D", 1);
-    body.initial = { ...body.initial, position: [0, 1, 0] };
+    body.initial = { ...body.initial, position: [0, 0, 1] };
     project.forces.push(externalForce(body.id, { x: "1/0" }));
     const bad2 = externalForce(body.id, { y: "log(-1)" });
     project.forces.push(bad2);
@@ -167,7 +167,7 @@ describe("forces — singular math strings (§4.1)", () => {
     const t = engine.bodies[0]!.translation();
     // Zero net applied force (both expressions → 0) and zero gravity: at rest.
     expect(Math.abs(t.x)).toBeLessThan(1e-9);
-    expect(Math.abs(t.y - 1)).toBeLessThan(1e-9);
+    expect(Math.abs(t.z - 1)).toBeLessThan(1e-9);
 
     const out = new Float32Array(engine.snapshotSize);
     engine.writeSnapshot(out);
@@ -177,16 +177,16 @@ describe("forces — singular math strings (§4.1)", () => {
     expect(warnings.some((w) => w.includes("log(-1)"))).toBe(true);
   });
 
-  it("2D mode enforces F_z = 0 for external forces (§4.5)", () => {
+  it("2D mode enforces F_y = 0 for external forces (§4.5)", () => {
     const { project, body } = isolatedProject("2D", 1);
-    project.forces.push(externalForce(body.id, { x: "2", z: "5" }));
+    project.forces.push(externalForce(body.id, { x: "2", y: "5" }));
     const engine = new PhysicsEngine(project, RAPIER);
     for (let i = 0; i < 240; i++) engine.step();
     const t = engine.bodies[0]!.translation();
     const v = engine.bodies[0]!.linvel();
-    expect(Math.abs(t.z)).toBeLessThan(1e-9);
-    expect(Math.abs(v.z)).toBeLessThan(1e-9);
-    expect(v.x).toBeGreaterThan(0.5); // F_x = 2 N still drives motion in XY
+    expect(Math.abs(t.y)).toBeLessThan(1e-9);
+    expect(Math.abs(v.y)).toBeLessThan(1e-9);
+    expect(v.x).toBeGreaterThan(0.5); // F_x = 2 N still drives motion in X–Z
   });
 });
 
@@ -199,7 +199,7 @@ describe("forces — contact extraction (N & F_f)", () => {
     box.mass = { value: 3, mode: "total" };
     box.linearDamping = 0;
     box.angularDamping = 0;
-    box.initial = { ...box.initial, position: [0, 0.51, 0] };
+    box.initial = { ...box.initial, position: [0, 0, 0.51] };
     project.bodies.push(box);
 
     const engine = new PhysicsEngine(project, RAPIER);
@@ -208,7 +208,7 @@ describe("forces — contact extraction (N & F_f)", () => {
     const out = new Float32Array(engine.snapshotSize);
     engine.writeSnapshot(out);
     const o = SNAPSHOT_HEADER;
-    const N = out[o + SNAPSHOT_INDEX.NORMAL + 1]!;
+    const N = out[o + SNAPSHOT_INDEX.NORMAL + 2]!;
     const Ff = Math.hypot(
       out[o + SNAPSHOT_INDEX.FRICTION]!,
       out[o + SNAPSHOT_INDEX.FRICTION + 1]!,

@@ -1,8 +1,9 @@
 // render/geometry/wedge.ts — wedge (inclined plane) geometry, 3D + 2D.
 //
-// Local frame: origin at the box corner of the bounding volume, X along the
-// incline direction (back = tall side at -X), Y up, Z depth. Top edge slopes
-// from full height H at the back down to H - W·tan(θ) at the front.
+// Local frame: X along the incline direction (back = tall side at -X), Z up,
+// Y depth. Top edge slopes from full height H at the back down to
+// H - W·tan(θ) at the front. The 2D helper returns the X–Y side profile, which
+// the flat viewport rotates into the world X–Z plane.
 
 import * as THREE from "three";
 
@@ -33,7 +34,7 @@ export function wedgeProfile(p: WedgeParams): Array<[number, number]> {
   ];
 }
 
-/** Extruded 3D prism, centered on the profile. */
+/** Extruded 3D prism, centered on the profile. X–Z profile, Y depth. */
 export function createWedgeGeometry(p: WedgeParams = DEFAULT_WEDGE): THREE.ExtrudeGeometry {
   const shape = new THREE.Shape();
   const profile = wedgeProfile(p);
@@ -44,6 +45,9 @@ export function createWedgeGeometry(p: WedgeParams = DEFAULT_WEDGE): THREE.Extru
   shape.closePath();
   const geom = new THREE.ExtrudeGeometry(shape, { depth: p.D, bevelEnabled: false });
   geom.translate(0, 0, -p.D / 2);
+  // ExtrudeGeometry builds in X–Y and extrudes along +Z. Rotate +90° about X
+  // so the profile's vertical Y becomes world Z and the depth becomes Y.
+  geom.rotateX(Math.PI / 2);
   return geom;
 }
 

@@ -1,5 +1,5 @@
-// render/entities/2d/FlatBodies.tsx — flat XY-plane (Z = 0) representations of
-// bodies and statics for the orthographic 2D viewport (§4.5).
+// render/entities/2d/FlatBodies.tsx — flat X–Z-plane (Y = 0) representations of
+// bodies and statics for the orthographic 2D viewport (§4.5, Z up).
 
 import { useMemo } from "react";
 import * as THREE from "three";
@@ -27,14 +27,17 @@ function flatGeometry(body: RigidBodyEntity, isPulley: boolean): THREE.BufferGeo
       return new THREE.CircleGeometry(num(g.sphere?.R, 0.5), 64);
     case "ellipsoid": {
       const geo = new THREE.CircleGeometry(1, 64);
-      geo.scale(num(g.ellipsoid?.a, 0.5), num(g.ellipsoid?.b, 0.5), 1);
+      // Local X–Y silhouette: a along X, c along Z (up → local Y before rotation).
+      geo.scale(num(g.ellipsoid?.a, 0.5), num(g.ellipsoid?.c, 0.5), 1);
       return geo;
     }
     case "cylinder":
     case "pulley":
       // A pulley (cylinder referenced by a rope) is modeled as a disk with
-      // I_z = ½mR² in 2D — render it as one too.
-      if (isPulley) return new THREE.CircleGeometry(num(g.cylinder?.R, 0.5), 64);
+      // I_y = ½mR² in 2D — render it as one too. Any cylinder thin enough to
+      // be a disk gets the same treatment (a freshly spawned pulley has no
+      // rope reference yet, but must still render as the disk its ghost showed).
+      if (isPulley || num(g.cylinder?.H, 1) <= 0.2) return new THREE.CircleGeometry(num(g.cylinder?.R, 0.5), 64);
       return new THREE.PlaneGeometry(num(g.cylinder?.R, 0.5) * 2, num(g.cylinder?.H, 1));
     case "rod":
       return new THREE.PlaneGeometry(num(g.rod?.L, 1), num(g.rod?.thickness, 0.05));
@@ -56,11 +59,12 @@ export function BodyEntity2D({ body }: { body: RigidBodyEntity }) {
   const opacity = body.appearance?.opacity ?? 0.85;
   const isPulley = useSceneStore((s) => s.project?.ropes.some((r) => r.pulleys?.includes(body.id)) ?? false);
   const geometry = useMemo(() => flatGeometry(body, isPulley), [body, isPulley]);
-  const position: Vec3 = [body.initial.position[0], body.initial.position[1], 0];
+  // 2D world = X–Z plane: Y is depth (out of the camera); body rotation is about Y.
+  const position: Vec3 = [body.initial.position[0], 0, body.initial.position[2]];
 
   return (
     <EntityGroup id={body.id} position={position} rotation={body.initial.rotation}>
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} rotation={[Math.PI / 2, 0, 0]}>
         <meshBasicMaterial
           color={highlighted ? "#22d3ee" : color}
           transparent
@@ -82,15 +86,17 @@ export function StaticEntity2D({ stat }: { stat: StaticEntityType }) {
 
   const geometry = useMemo(() => {
     if (isGround) return new THREE.PlaneGeometry(extent0, 0.08);
-    // Walls appear as vertical lines in the XY plane.
+    // Walls (normal ±X) appear as vertical lines in the X–Z plane.
     return new THREE.PlaneGeometry(0.08, extent1);
   }, [isGround, extent0, extent1]);
 
-  const position: Vec3 = isGround ? [0, -0.04, 0] : [0, 0, 0];
+  const position: Vec3 = isGround
+    ? [0, 0, stat.position?.[2] ?? 0]
+    : [stat.position?.[0] ?? 0, 0, stat.position?.[2] ?? 0];
 
   return (
     <EntityGroup id={stat.id} position={position} rotation={[0, 0, 0, 1]}>
-      <mesh geometry={geometry}>
+      <mesh geometry={geometry} rotation={[Math.PI / 2, 0, 0]}>
         <meshBasicMaterial color={highlighted ? "#22d3ee" : color} transparent opacity={0.95} side={THREE.DoubleSide} />
       </mesh>
     </EntityGroup>

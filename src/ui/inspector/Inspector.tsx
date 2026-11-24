@@ -31,10 +31,10 @@ import {
 const FACE_LABELS: [string, string, string, string, string, string] = [
   "+X (right)",
   "-X (left)",
-  "+Y (top)",
-  "-Y (bottom)",
-  "+Z (front)",
-  "-Z (back)",
+  "+Y (back)",
+  "-Y (front)",
+  "+Z (top)",
+  "-Z (bottom)",
 ];
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -222,6 +222,7 @@ function BodyInspector({ body }: { body: RigidBodyEntity }) {
 
       <Section title="Geometry">
         <GeometryFields body={body} setGeometryField={setGeometryField} />
+        <Hint>Z is up: box W→X, D→Y (depth), H→Z; cylinders use a +Z axis; ellipsoid c is vertical.</Hint>
       </Section>
 
       {body.kind === "box" && (
@@ -385,7 +386,7 @@ function StaticInspector({ stat }: { stat: StaticEntity }) {
           onChange={(v) => patch({ appearance: { color: v, opacity: stat.appearance?.opacity ?? 0.85 } })}
         />
       </Section>
-      <Hint>Statics are pinned at the world origin — they have no position.</Hint>
+      <Hint>Statics are infinite planes; drag the move gizmo in the viewport to reposition them (their plane offset is stored in `position`).</Hint>
     </>
   );
 }

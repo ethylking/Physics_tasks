@@ -6,6 +6,8 @@ Tauri v2 + React 18 + TypeScript + Tailwind CSS + Lucide React + three.js (R3F) 
 
 **Deterministic rigid-body physics running in a Web Worker, driving the R3F meshes at 60 FPS.**
 
+**Coordinate system:** right-handed, X–Y horizontal ground plane, +Z up. The 2D workspace is the vertical X–Z plane; box dimensions map `W→X, D→Y, H→Z`, cylinders use a +Z axis, and ellipsoids use `a→X, b→Y, c→Z`.
+
 - **Math layer** (`src/math/`)
   - `inertia.ts` — §2.3 pipeline: analytic `I_geo` for all Tier 1 bodies (box / solid & hollow sphere / ellipsoid / solid & hoop cylinder / rod / wedge), rod `λ(x)` via Gauss-Simpson integration (exact M, r_CM, I_CM), wedge trapezoidal-prism centroid + inertia, **Parallel-Axis (Steiner) shift** `I_CM = I_geo − m(|d|²E − d⊗d)`, **Jacobi diagonalization** → principal moments (clamped ≥ 1e-9) + principal-frame quaternion.
   - `expr.ts` — §4.1 safe mathjs evaluator: static token rejection + **AST whitelist traversal** (20 functions, `pi/e`, 10 variables — anything else fails at compile time), runtime NaN/±Inf → 0 with rate-limited warnings, magnitude clamp ±1e6.
@@ -28,6 +30,19 @@ npm run build         # typecheck + production bundle (incl. the physics worker)
 cargo check           # inside src-tauri/ — verify the Rust backend compiles
 cargo test            # inside src-tauri/ — Rust fs/project unit tests
 ```
+
+### Windows release build
+
+```bat
+build-release.cmd              :: full release build: frontend + Rust + MSI/NSIS bundles
+build-release.cmd --no-bundle  :: release executable only
+```
+
+The script adds Node.js/Cargo to PATH when needed, synchronizes frontend deps
+with `package.json` / `package-lock.json`, clears old `dist/` and installer
+bundles, forces the Tauri app crate to recompile, then runs `tauri build`
+(typecheck + Vite + `cargo --release`). Artifacts land in
+`src-tauri\target\release\` (bundles in `...\release\bundle\`).
 
 ### Runtime smoke test (CDP)
 

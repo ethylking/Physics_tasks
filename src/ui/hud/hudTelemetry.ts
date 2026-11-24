@@ -88,8 +88,11 @@ export function buildBodyTelemetry(
   const EkRot = 0.5 * (I[0] * omegaLocal[0] * omegaLocal[0] + I[1] * omegaLocal[1] * omegaLocal[1] + I[2] * omegaLocal[2] * omegaLocal[2]);
   const Ek = 0.5 * mp.mass * speed * speed + EkRot;
 
-  // Same convention as the engine: Ep = −m g·r_CM.
-  const g = project.world.gravity;
+  // Same convention as the engine: Ep = −m g·r_CM. In 2D the world is the
+  // X–Z plane, so gravity is projected into it exactly like PhysicsEngine does.
+  const worldG = project.world.gravity;
+  const g: Vec3 =
+    project.meta.mode === "2D" ? [worldG[0], 0, worldG[2]] : worldG;
   const com = localToWorld(mp.centerOfMass, position, rotation);
   const Ep = -mp.mass * (g[0] * com[0] + g[1] * com[1] + g[2] * com[2]);
 

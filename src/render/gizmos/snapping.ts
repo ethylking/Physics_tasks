@@ -39,7 +39,7 @@ function cross(a: Vec3, b: Vec3): Vec3 {
 
 function normalize(v: Vec3): Vec3 {
   const len = Math.hypot(v[0], v[1], v[2]);
-  if (len < 1e-9) return [0, 1, 0];
+  if (len < 1e-9) return [0, 0, 1];
   return [v[0] / len, v[1] / len, v[2] / len];
 }
 
@@ -49,6 +49,8 @@ function dist3(a: Vec3, b: Vec3): number {
 
 /** A unit-vector basis (u, v) spanning the plane perpendicular to `normal`. */
 function planeBasis(normal: Vec3): [Vec3, Vec3] {
+  // Keep the ground's extents aligned with world X/Y.
+  if (Math.abs(normal[2]) > 0.999) return [[1, 0, 0], [0, 1, 0]];
   const ref: Vec3 = Math.abs(normal[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
   const u = normalize(cross(ref, normal));
   const v = cross(normal, u);
@@ -74,22 +76,21 @@ export function bodyLocalSnapPoints(body: RigidBodyEntity): LocalAnchor[] {
   switch (body.kind) {
     case "box": {
       const hw = num(g.box?.W, 1) / 2;
-      const hh = num(g.box?.H, 1) / 2;
-      const hd = num(g.box?.D, 1) / 2;
-      // Six face centers
+      const hh = num(g.box?.H, 1) / 2; // Z (up)
+      const hd = num(g.box?.D, 1) / 2; // Y (depth)
       out.push(
         { kind: "face", point: [hw, 0, 0], label: "+X face" },
         { kind: "face", point: [-hw, 0, 0], label: "-X face" },
-        { kind: "face", point: [0, hh, 0], label: "+Y face" },
-        { kind: "face", point: [0, -hh, 0], label: "-Y face" },
-        { kind: "face", point: [0, 0, hd], label: "+Z face" },
-        { kind: "face", point: [0, 0, -hd], label: "-Z face" },
+        { kind: "face", point: [0, hd, 0], label: "+Y face" },
+        { kind: "face", point: [0, -hd, 0], label: "-Y face" },
+        { kind: "face", point: [0, 0, hh], label: "+Z face" },
+        { kind: "face", point: [0, 0, -hh], label: "-Z face" },
       );
-      // Eight vertices
+      // Eight vertices: W on X, D on Y, H on Z.
       for (const sx of [-1, 1]) {
         for (const sy of [-1, 1]) {
           for (const sz of [-1, 1]) {
-            out.push({ kind: "vertex", point: [sx * hw, sy * hh, sz * hd], label: "box vertex" });
+            out.push({ kind: "vertex", point: [sx * hw, sy * hd, sz * hh], label: "box vertex" });
           }
         }
       }
@@ -125,18 +126,18 @@ export function bodyLocalSnapPoints(body: RigidBodyEntity): LocalAnchor[] {
       const R = num(g.cylinder?.R, 0.5);
       const hh = num(g.cylinder?.H, 1) / 2;
       out.push(
-        // pulley axle = cylinder axis endpoints (cylinder axis is Y)
-        { kind: "rim", point: [0, hh, 0], label: "axle top" },
-        { kind: "rim", point: [0, -hh, 0], label: "axle bottom" },
-        // rim tangents
-        { kind: "rim", point: [R, hh, 0], label: "rim top +X" },
-        { kind: "rim", point: [-R, hh, 0], label: "rim top -X" },
-        { kind: "rim", point: [R, -hh, 0], label: "rim bottom +X" },
-        { kind: "rim", point: [-R, -hh, 0], label: "rim bottom -X" },
+        // Cylinder axis is local +Z.
+        { kind: "rim", point: [0, 0, hh], label: "axle top" },
+        { kind: "rim", point: [0, 0, -hh], label: "axle bottom" },
+        // rim tangents in the X–Y cross-section
+        { kind: "rim", point: [R, 0, hh], label: "rim top +X" },
+        { kind: "rim", point: [-R, 0, hh], label: "rim top -X" },
+        { kind: "rim", point: [R, 0, -hh], label: "rim bottom +X" },
+        { kind: "rim", point: [-R, 0, -hh], label: "rim bottom -X" },
         { kind: "rim", point: [R, 0, 0], label: "side +X" },
         { kind: "rim", point: [-R, 0, 0], label: "side -X" },
-        { kind: "rim", point: [0, 0, R], label: "side +Z" },
-        { kind: "rim", point: [0, 0, -R], label: "side -Z" },
+        { kind: "rim", point: [0, R, 0], label: "side +Y" },
+        { kind: "rim", point: [0, -R, 0], label: "side -Y" },
       );
       break;
     }
@@ -158,17 +159,17 @@ export function bodyLocalSnapPoints(body: RigidBodyEntity): LocalAnchor[] {
       const hd = D / 2;
       const frontTop = Math.max(0.02 * H, H - W * Math.tan(theta)) - H / 2;
       out.push(
-        { kind: "face", point: [0, -hh, 0], label: "wedge base" },
+        { kind: "face", point: [0, 0, -hh], label: "wedge base" },
         { kind: "face", point: [-hw, 0, 0], label: "wedge back" },
-        { kind: "face", point: [hw, (frontTop - hh) / 2, 0], label: "wedge front" },
-        { kind: "face", point: [0, (frontTop + hh) / 2, 0], label: "wedge slope" },
+        { kind: "face", point: [hw, 0, (frontTop - hh) / 2], label: "wedge front" },
+        { kind: "face", point: [0, 0, (frontTop + hh) / 2], label: "wedge slope" },
       );
-      // 8 corners of the trapezoidal prism
+      // 8 corners of the trapezoidal prism: X width, Y depth, Z height.
       for (const sx of [-1, 1]) {
-        const yTop = sx === -1 ? hh : frontTop;
-        for (const sz of [-1, 1]) {
-          out.push({ kind: "vertex", point: [sx * hw, yTop, sz * hd], label: "wedge vertex" });
-          out.push({ kind: "vertex", point: [sx * hw, -hh, sz * hd], label: "wedge vertex" });
+        const zTop = sx === -1 ? hh : frontTop;
+        for (const sy of [-1, 1]) {
+          out.push({ kind: "vertex", point: [sx * hw, sy * hd, zTop], label: "wedge vertex" });
+          out.push({ kind: "vertex", point: [sx * hw, sy * hd, -hh], label: "wedge vertex" });
         }
       }
       break;
@@ -199,7 +200,7 @@ function computeStaticSnapPoints(stat: StaticEntity): SnapPoint[] {
   const ex = num(stat.plane.extent[0], 10);
   const ey = num(stat.plane.extent[1], 10);
   const [u, v] = planeBasis(normal);
-  const center: Vec3 = [0, 0, 0];
+  const center: Vec3 = [...(stat.position ?? [0, 0, 0])] as Vec3;
   const out: SnapPoint[] = [{ ownerId: stat.id, kind: "surface", point: center, label: "surface center" }];
   for (const su of [-1, 1]) {
     for (const sv of [-1, 1]) {
@@ -207,9 +208,9 @@ function computeStaticSnapPoints(stat: StaticEntity): SnapPoint[] {
         ownerId: stat.id,
         kind: "surface",
         point: [
-          (su * u[0] * ex) / 2 + (sv * v[0] * ey) / 2,
-          (su * u[1] * ex) / 2 + (sv * v[1] * ey) / 2,
-          (su * u[2] * ex) / 2 + (sv * v[2] * ey) / 2,
+          center[0] + (su * u[0] * ex) / 2 + (sv * v[0] * ey) / 2,
+          center[1] + (su * u[1] * ex) / 2 + (sv * v[1] * ey) / 2,
+          center[2] + (su * u[2] * ex) / 2 + (sv * v[2] * ey) / 2,
         ],
         label: "surface corner",
       });
@@ -223,8 +224,8 @@ function computeStaticSnapPoints(stat: StaticEntity): SnapPoint[] {
 // -----------------------------------------------------------------------------
 
 /**
- * All snap candidates for the current scene. In 2D mode every point is
- * projected onto the Z = 0 plane (§4.5).
+ * All snap candidates for the current scene. In 2D mode (X–Z workspace) every
+ * point is projected onto the Y = 0 plane (§4.5).
  */
 export function computeSnapPoints(project: MechProject, mode: ProjectMode): SnapPoint[] {
   const points: SnapPoint[] = [];
@@ -235,7 +236,7 @@ export function computeSnapPoints(project: MechProject, mode: ProjectMode): Snap
     points.push(...computeStaticSnapPoints(stat));
   }
   if (mode === "2D") {
-    for (const p of points) p.point = [p.point[0], p.point[1], 0];
+    for (const p of points) p.point = [p.point[0], 0, p.point[2]];
   }
   return points;
 }
@@ -254,10 +255,10 @@ export function findSnap(point: Vec3, candidates: SnapPoint[], radius: number = 
   return best;
 }
 
-/** Resting position for a body spawned at surface point `p` (lifted by half height). */
+/** Resting position for a body spawned at surface point `p` (+Z is up). */
 export function liftBodyPoint(kind: string, p: Vec3, mode: ProjectMode): Vec3 {
   const half = halfHeightOf(kind);
-  return [p[0], p[1] + half, mode === "2D" ? 0 : p[2]];
+  return [p[0], mode === "2D" ? 0 : p[1], p[2] + half];
 }
 
 export type { Quat };

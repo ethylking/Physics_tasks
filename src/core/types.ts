@@ -1,6 +1,8 @@
 // =============================================================================
 // core/types.ts — Serialized truth of a `.mech.json` project (ARCHITECTURE.md §3)
 //
+// Coordinate convention: right-handed, +X right, +Y depth, +Z up. The default
+// horizontal (ground) plane is X–Y; the 2D workspace is the vertical X–Z plane.
 // Tier 1 entity schemas are fully specified here. Tier 2 payloads ride along as
 // opaque plugin records (`kind: string`, `geometry: Record<string, unknown>`)
 // and are preserved verbatim by the validator, never blocking a load.
@@ -51,7 +53,7 @@ export interface MechProject {
 }
 
 export interface WorldSettings {
-  /** Default [0, -9.81, 0]. */
+  /** Default [0, 0, -9.81] (Z-up). */
   gravity: Vec3;
   /** 1 */
   timeScale: number;
@@ -78,8 +80,11 @@ export interface WorldSettings {
 export type Tier1BodyKind = "box" | "sphere" | "ellipsoid" | "cylinder" | "rod" | "wedge";
 
 export interface BoxGeometry {
+  /** Width along +X. */
   W: number;
+  /** Height along +Z (up). */
   H: number;
+  /** Depth along +Y. */
   D: number;
 }
 export interface SphereGeometry {
@@ -87,12 +92,17 @@ export interface SphereGeometry {
   shell: boolean;
 }
 export interface EllipsoidGeometry {
+  /** Semi-axis along +X. */
   a: number;
+  /** Semi-axis along +Y (depth). */
   b: number;
+  /** Semi-axis along +Z (up). */
   c: number;
 }
 export interface CylinderGeometry {
+  /** Radius in the X–Y cross-section. */
   R: number;
+  /** Height along +Z (the cylinder axis). */
   H: number;
   hollow: boolean;
 }
@@ -103,8 +113,11 @@ export interface RodGeometry {
 }
 export interface WedgeGeometry {
   thetaDeg: number;
+  /** Incline run along +X. */
   W: number;
+  /** Height along +Z (up). */
   H: number;
+  /** Extrusion depth along +Y. */
   D: number;
   dynamic: boolean;
 }
@@ -157,6 +170,8 @@ export interface StaticEntity {
   name: string;
   kind: "wall" | "ground";
   plane: { normal: Vec3; extent: [number, number] };
+  /** World point the plane passes through (defaults to the origin). */
+  position?: Vec3;
   friction: number;
   restitution: number;
   ccd: boolean;
@@ -239,6 +254,8 @@ export interface MeterEntity {
   kind: Tier1MeterKind | string;
   tier: 1 | 2;
   target?: UUID;
+  /** World position of the meter marker (overrides the target-derived position). */
+  position?: Vec3;
   output?: "hud" | "plot" | "export";
 }
 

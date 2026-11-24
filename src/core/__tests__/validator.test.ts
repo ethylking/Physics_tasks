@@ -22,14 +22,14 @@ describe("validator — schema v2 & reference integrity", () => {
     expect(result.project?.meta.name).toBe("Clean");
   });
 
-  it("accepts a fresh default 2D project (z-locks applied, gravity z = 0)", () => {
+  it("accepts a fresh default 2D project (X–Z plane locks, gravity down -Z)", () => {
     const project = createDefaultProject("Clean 2D", "2D");
     const result = validateProject(project, rawOf(project));
     expect(result.ok).toBe(true);
-    expect(project.world.gravity[2]).toBe(0);
+    expect(project.world.gravity).toEqual([0, 0, -9.81]);
     for (const body of project.bodies) {
-      expect(body.locks.translate).toEqual([false, false, true]);
-      expect(body.locks.rotate).toEqual([true, true, false]);
+      expect(body.locks.translate).toEqual([false, true, false]);
+      expect(body.locks.rotate).toEqual([true, false, true]);
     }
   });
 

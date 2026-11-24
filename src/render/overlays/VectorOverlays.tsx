@@ -152,7 +152,9 @@ function BodyVectors({ body }: { body: RigidBodyEntity }) {
     const accel: Vec3 = [snapshot[o + SNAPSHOT_INDEX.ACCEL] ?? 0, snapshot[o + SNAPSHOT_INDEX.ACCEL + 1] ?? 0, snapshot[o + SNAPSHOT_INDEX.ACCEL + 2] ?? 0];
     const normal: Vec3 = [snapshot[o + SNAPSHOT_INDEX.NORMAL] ?? 0, snapshot[o + SNAPSHOT_INDEX.NORMAL + 1] ?? 0, snapshot[o + SNAPSHOT_INDEX.NORMAL + 2] ?? 0];
     const friction: Vec3 = [snapshot[o + SNAPSHOT_INDEX.FRICTION] ?? 0, snapshot[o + SNAPSHOT_INDEX.FRICTION + 1] ?? 0, snapshot[o + SNAPSHOT_INDEX.FRICTION + 2] ?? 0];
-    const gravity: Vec3 = project.world.gravity;
+    const worldG = project.world.gravity;
+    // Match the engine: 2D physics lives in the X–Z plane (Y out of plane).
+    const gravity: Vec3 = project.meta.mode === "2D" ? [worldG[0], 0, worldG[2]] : worldG;
 
     // Tangential / normal decomposition of the total acceleration.
     const speed = hypot(linvel);
@@ -463,7 +465,11 @@ function RopeTensionOverlay({ rope }: { rope: RopeEntityType }) {
       const body = project.bodies.find((b) => b.id === id);
       const radius = (body?.geometry as { cylinder?: { R?: number } })?.cylinder?.R ?? 0.25;
       const mount = project.joints.find((j) => j.kind === "revolute" && (j.bodyA === id || j.bodyB === id));
-      const axis = mount ? resolveJointAxis(mount, project.meta.mode) : ([0, 0, 1] as Vec3);
+      const axis = mount
+        ? resolveJointAxis(mount, project.meta.mode)
+        : project.meta.mode === "2D"
+          ? ([0, 1, 0] as Vec3)
+          : ([0, 0, 1] as Vec3);
       return {
         center: [snapshot[o + SNAPSHOT_INDEX.POS] ?? 0, snapshot[o + 1] ?? 0, snapshot[o + 2] ?? 0] as Vec3,
         radius,

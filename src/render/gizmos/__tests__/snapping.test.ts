@@ -2,7 +2,13 @@
 
 import { describe, expect, it } from "vitest";
 import { computeBodySnapPoints, computeSnapPoints, findSnap } from "../snapping";
-import { createDefaultBody, createDefaultProject } from "../../../core/defaults";
+import {
+  bodyHalfHeight,
+  createDefaultBody,
+  createDefaultProject,
+  halfHeightOf,
+  PULLEY_GEOMETRY,
+} from "../../../core/defaults";
 import { eulerDegToQuat, localToWorld, quatToEulerDeg, worldToLocal } from "../../../math/rotation";
 import type { Vec3 } from "../../../core/types";
 
@@ -64,26 +70,27 @@ describe("snapping — anchor computation", () => {
     expect(hasPoint(sPoints, [0.5, 0, 0])).toBe(true);
     expect(hasPoint(sPoints, [0, -0.5, 0])).toBe(true);
 
-    const cyl = createDefaultBody("cylinder"); // R=0.5, H=1
+    const cyl = createDefaultBody("cylinder"); // R=0.5, H=1, axis +Z
     const cPoints = computeBodySnapPoints(cyl).map((p) => p.point);
-    expect(hasPoint(cPoints, [0, 0.5, 0])).toBe(true); // axle top
-    expect(hasPoint(cPoints, [0.5, 0.5, 0])).toBe(true); // rim tangent
+    expect(hasPoint(cPoints, [0, 0, 0.5])).toBe(true); // axle top
+    expect(hasPoint(cPoints, [0.5, 0, 0.5])).toBe(true); // rim tangent
   });
 
   it("respects the wedge incline angle when computing vertices", () => {
     const wedge = createDefaultBody("wedge"); // thetaDeg=30, W=1, H=0.5
     const points = computeBodySnapPoints(wedge).map((p) => p.point);
-    // back top corner stays at full height; front top drops with the slope
-    expect(hasPoint(points, [-0.5, 0.25, 0.5])).toBe(true);
-    // frontTop = clamp(0.02*H, H - W*tan30) = 0.01 → y = 0.01 - 0.25 = -0.24
-    expect(hasPoint(points, [0.5, -0.24, 0.5], 1e-5)).toBe(true);
+    // back top corner stays at full height; front top drops with the slope.
+    // W=1, H=0.5, D=1 → x=±0.5, y depth=±0.5, z top=+0.25.
+    expect(hasPoint(points, [-0.5, 0.5, 0.25])).toBe(true);
+    // frontTop = clamp(0.02*H, H - W*tan30) = 0.01 → z = 0.01 - 0.25 = -0.24
+    expect(hasPoint(points, [0.5, 0.5, -0.24], 1e-5)).toBe(true);
   });
 
-  it("projects every snap point onto Z = 0 in 2D mode", () => {
+  it("projects every snap point onto Y = 0 in 2D mode", () => {
     const project = createDefaultProject("2D snaps", "2D");
     const points = computeSnapPoints(project, "2D");
     expect(points.length).toBeGreaterThan(0);
-    for (const p of points) expect(Math.abs(p.point[2])).toBeLessThan(1e-9);
+    for (const p of points) expect(Math.abs(p.point[1])).toBeLessThan(1e-9);
   });
 });
 
@@ -96,6 +103,32 @@ describe("snapping — magnetic search", () => {
     const near = findSnap([1.05, 0.1, 0], candidates, 0.4);
     expect(near?.ownerId).toBe("a");
     expect(findSnap([10, 10, 10], candidates, 0.4)).toBeNull();
+  });
+});
+
+describe("body lift — half heights", () => {
+  it("matches the default geometry per kind", () => {
+    expect(halfHeightOf("box")).toBe(0.5);
+    expect(halfHeightOf("sphere")).toBe(0.5);
+    expect(halfHeightOf("cylinder")).toBe(0.5);
+    expect(halfHeightOf("rod")).toBe(0.025);
+    expect(halfHeightOf("wedge")).toBe(0.25);
+  });
+
+  it("treats a palette pulley as the thin disk it is", () => {
+    expect(halfHeightOf("pulley")).toBe(PULLEY_GEOMETRY.H / 2);
+    expect(PULLEY_GEOMETRY.H).toBe(0.08);
+  });
+
+  it("bodyHalfHeight reads the CONCRETE geometry, not the kind defaults", () => {
+    // A pulley is stored as a cylinder with a custom thin H.
+    const pulley = createDefaultBody("cylinder");
+    pulley.geometry = { cylinder: { R: 0.5, H: 0.08, hollow: false } };
+    expect(bodyHalfHeight(pulley)).toBeCloseTo(0.04, 6);
+
+    const tallBox = createDefaultBody("box");
+    tallBox.geometry = { box: { W: 2, H: 3, D: 1 } };
+    expect(bodyHalfHeight(tallBox)).toBe(1.5);
   });
 });
 

@@ -1,5 +1,6 @@
-// ui/hud/HoverTelemetry.tsx — floating telemetry card for the hovered (or
-// selected) body (Milestone 4).
+// ui/hud/HoverTelemetry.tsx — floating telemetry card for the hovered body
+// (Milestone 4). The card follows the cursor; it only appears while the
+// pointer is actually over a body (selection alone does not show it).
 //
 // Works while Editing/Paused and while Running: it polls the latest worker
 // snapshot at ~10 Hz (never re-rendering per physics frame) and falls back to
@@ -19,11 +20,10 @@ const CARD_HEIGHT = 340;
 export default function HoverTelemetry() {
   const project = useSceneStore((s) => s.project);
   const hoveredId = useSceneStore((s) => s.hoveredId);
-  const selectedId = useSceneStore((s) => s.selectedId);
   const [telemetry, setTelemetry] = useState<BodyTelemetry | null>(null);
   const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
 
-  const targetId = hoveredId ?? selectedId;
+  const targetId = hoveredId;
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => setPointer({ x: e.clientX, y: e.clientY });

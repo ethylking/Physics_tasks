@@ -137,7 +137,7 @@ interface MechProject {
 }
 
 interface WorldSettings {
-  gravity: Vec3;                     // default [0,-9.81,0]
+  gravity: Vec3;                     // right-handed Z-up; default [0,0,-9.81]
   timeScale: number;                 // 1
   fixedDt: number;                   // 1/120 | 1/240
   solverIterations: number;          // 4
@@ -272,8 +272,10 @@ interface EntityPlugin<K extends string = string> {
 ## 4.4 Solver iterations (auto-tune)
 - Default `(4,4,1)`. `+2` per extra body in a resting stack, per closed loop, or per mass ratio > `1e3`. Cap `(16,16,4)`. **Warm-starting stays ON.**
 
-## 4.5 2D-in-3D locking
-- `locks.translate=[false,false,true]`, `locks.rotate=[true,true,false]`; zero `F_z`; `gravity.z=0`. Revolute axis auto-snapped to `z`; disallow 2D body + spherical joint.
+## 4.5 Coordinate convention & 2D-in-3D locking
+- **World axes:** right-handed `+X` right, `+Y` depth, `+Z` up. The default horizontal ground plane is `X–Y`.
+- **2D workspace:** the vertical `X–Z` plane; `locks.translate=[false,true,false]`, `locks.rotate=[true,false,true]`; zero `F_y`; `gravity.y=0`. Revolute axis auto-snapped to `y`; disallow 2D body + spherical joint.
+- **Body geometry:** box `W→X, D→Y, H→Z`; cylinder/disk axis `+Z`; ellipsoid semi-axes `a→X, b→Y, c→Z`; wedge profile in `X–Z` extruded along `Y`.
 
 ## 4.6 Degenerate geometry
 - Clamp dims to `ε_geo=1e-4 m`, `m_min=1e-6 kg`; reject zero principal moment. Warn (don't crash) on zero pivot offset.

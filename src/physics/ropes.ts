@@ -524,7 +524,7 @@ export function buildRope(rope: RopeEntity, ctx: RopeBuildContext): RopeRuntime 
       const entity = ctx.project.bodies[index];
       const R = pulleyRadius(entity);
       if (ctx.mode === "2D") {
-        // §2.1 — a 2D pulley is a disk in the XY plane: I_z = ½·m·R², so the
+        // §2.1 — a 2D pulley is a disk in the X–Z plane: I_y = ½·m·R², so the
         // Atwood coupling a = αR holds with the exact textbook inertia.
         const diskMass = ctx.meta[index]?.mass ?? 1;
         const g = entity?.geometry as Record<string, unknown> | undefined;
@@ -534,7 +534,7 @@ export function buildRope(rope: RopeEntity, ctx: RopeBuildContext): RopeRuntime 
         body.setAdditionalMassProperties(
           diskMass,
           { x: 0, y: 0, z: 0 },
-          { x: iPerp, y: iPerp, z: 0.5 * diskMass * R * R },
+          { x: iPerp, y: 0.5 * diskMass * R * R, z: iPerp },
           { x: 0, y: 0, z: 0, w: 1 },
           true,
         );
@@ -544,7 +544,9 @@ export function buildRope(rope: RopeEntity, ctx: RopeBuildContext): RopeRuntime 
         warnOnce(
           runtime,
           `mount:${pulleyId}`,
-          `pulley "${entity?.name ?? pulleyId}" has no revolute mount — assuming a free pulley about Z`,
+          `pulley "${entity?.name ?? pulleyId}" has no revolute mount — assuming a free pulley about ${
+            ctx.mode === "2D" ? "Y" : "Z"
+          }`,
         );
       }
       const quat = quatFromRotation(body.rotation());
@@ -552,7 +554,7 @@ export function buildRope(rope: RopeEntity, ctx: RopeBuildContext): RopeRuntime 
         body,
         bodyIndex: index,
         radius: pulleyRadius(entity),
-        axisWorld: mount?.axisWorld ?? [0, 0, 1],
+        axisWorld: mount?.axisWorld ?? (ctx.mode === "2D" ? [0, 1, 0] : [0, 0, 1]),
         theta: 0,
         lastQuat: quat,
       });
@@ -790,12 +792,12 @@ function buildChain(rope: RopeEntity, ctx: RopeBuildContext, rt: RopeRuntime): v
     desc.linearDamping = 0.5;
     desc.angularDamping = 0.2;
     if (ctx.mode === "2D") {
-      // Z-translation lock only: the revolute links (and the joint solver,
-      // which cannot drive a free axis against locked X/Y rotations) keep the
-      // chain planar.
+      // Y-translation lock only: the revolute links (and the joint solver,
+      // which cannot drive a free axis against locked X/Z rotations) keep the
+      // chain planar in X–Z.
       desc.translationsEnabledX = true;
-      desc.translationsEnabledY = true;
-      desc.translationsEnabledZ = false;
+      desc.translationsEnabledY = false;
+      desc.translationsEnabledZ = true;
     }
     const body = ctx.world.createRigidBody(desc);
     const cd = ctx.rapier.ColliderDesc.ball(radius)
@@ -828,7 +830,7 @@ function buildChain(rope: RopeEntity, ctx: RopeBuildContext, rt: RopeRuntime): v
     const a2 = anchorLocal(scale(half, -1));
     if (ctx.mode === "2D") {
       ctx.world.createImpulseJoint(
-        ctx.rapier.JointData.revolute(a1, a2, { x: 0, y: 0, z: 1 }),
+        ctx.rapier.JointData.revolute(a1, a2, { x: 0, y: 1, z: 0 }),
         segBodies[i]!,
         segBodies[i + 1]!,
         true,

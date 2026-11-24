@@ -27,8 +27,12 @@ function expectSortedValues(actual: number[], expected: number[], eps = 1e-9) {
 }
 
 describe("inertia — analytic tensors", () => {
-  it("box: I = m/12·(H²+D², W²+D², W²+H²)", () => {
+  it("box (Z-up): I = m/12·(D²+H², W²+H², W²+D²) about X/Y/Z", () => {
     const mp = computeBodyMassProperties(bodyOf("box", { geometry: { box: { W: 2, H: 4, D: 6 } }, mass: { value: 12, mode: "total" } }));
+    // W=2 (X), D=6 (Y/depth), H=4 (Z/up).
+    expect(mp.inertiaCM[0]).toBeCloseTo(52, 9);
+    expect(mp.inertiaCM[4]).toBeCloseTo(20, 9);
+    expect(mp.inertiaCM[8]).toBeCloseTo(40, 9);
     expectSortedValues([...mp.principalInertia], [52, 40, 20]);
   });
 
@@ -39,10 +43,12 @@ describe("inertia — analytic tensors", () => {
     expectSortedValues([...shell.principalInertia], [4, 4, 4]);
   });
 
-  it("cylinder: solid disk I_axis = ½mR² vs thin hoop I_axis = mR²", () => {
+  it("cylinder (Z-up): solid disk I_axis = ½mR² vs thin hoop I_axis = mR²", () => {
     const solid = computeBodyMassProperties(bodyOf("cylinder", { geometry: { cylinder: { R: 1, H: 4, hollow: false } }, mass: { value: 2, mode: "total" } }));
+    expect(solid.inertiaCM[8]).toBeCloseTo(1, 9); // axis = local +Z
     expectSortedValues([...solid.principalInertia], [1, 19 / 6, 19 / 6]);
     const hoop = computeBodyMassProperties(bodyOf("cylinder", { geometry: { cylinder: { R: 1, H: 4, hollow: true } }, mass: { value: 2, mode: "total" } }));
+    expect(hoop.inertiaCM[8]).toBeCloseTo(2, 9);
     expectSortedValues([...hoop.principalInertia], [2, 11 / 3, 11 / 3]);
   });
 
@@ -54,7 +60,11 @@ describe("inertia — analytic tensors", () => {
   it("uniform rod: I_perp = mL²/12 (+ thickness term)", () => {
     const mp = computeBodyMassProperties(bodyOf("rod", { geometry: { rod: { L: 2, thickness: 0.05 } }, mass: { value: 3, mode: "total" } }));
     const expectedPerp = (3 * 4) / 12 + (3 * 0.0025) / 16;
-    expectSortedValues([...mp.principalInertia], [expectedPerp, expectedPerp, (3 * 0.0025) / 8], 1e-6);
+    const expectedAxial = (3 * 0.0025) / 8;
+    // The rod lies along +X, so X carries the small axial moment.
+    expect(mp.inertiaCM[0]).toBeCloseTo(expectedAxial, 6);
+    expect(mp.inertiaCM[4]).toBeCloseTo(expectedPerp, 6);
+    expectSortedValues([...mp.principalInertia], [expectedPerp, expectedPerp, expectedAxial], 1e-6);
   });
 });
 
@@ -106,9 +116,10 @@ describe("inertia — wedge (right-triangular prism)", () => {
       bodyOf("wedge", { geometry: { wedge: { thetaDeg: 45, W: 1, H: 1, D: 1, dynamic: false } }, mass: { value: 1, mode: "total" } }),
     );
     const fH = 0.02;
-    // exact trapezoid centroid: x̄ = (fH − H)·W / (6·(H + fH))
+    // exact trapezoid centroid: x̄ = (fH − H)·W / (6·(H + fH)); Z is up.
     expect(mp.centerOfMass[0]).toBeCloseTo(((fH - 1) * 1) / (6 * (1 + fH)), 4);
-    expect(mp.centerOfMass[1]).toBeCloseTo(-1 / 6, 2);
+    expect(mp.centerOfMass[1]).toBeCloseTo(0, 9);
+    expect(mp.centerOfMass[2]).toBeCloseTo(-1 / 6, 2);
     expectSortedValues([...mp.principalInertia], [1 / 9, 1 / 9, 1 / 6], 6e-3);
   });
 });

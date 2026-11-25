@@ -115,7 +115,7 @@ function InspectorHeader({ category }: { category: string }) {
           <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
-      {category === "bodies" && (
+      {(category === "bodies" || category === "statics") && (
         <div className="mt-2 flex gap-1">
           <button
             type="button"
@@ -359,6 +359,24 @@ function StaticInspector({ stat }: { stat: StaticEntity }) {
 
   return (
     <>
+      <Section title="Transform">
+        <Vec3Field
+          groupLabel="Position"
+          labels={["x", "y", "z"]}
+          values={stat.position ?? [0, 0, 0]}
+          onChange={(v) => patch({ position: v })}
+        />
+        <Vec3Field
+          groupLabel="Rotation (deg)"
+          labels={["rx", "ry", "rz"]}
+          values={quatToEulerDeg(stat.rotation ?? [0, 0, 0, 1])}
+          onChange={(deg) => patch({ rotation: eulerDegToQuat(deg) })}
+        />
+        <Hint>
+          Angles are relative to the plane&apos;s initial orientation (normal {stat.plane.normal[0]},{" "}
+          {stat.plane.normal[1]}, {stat.plane.normal[2]}); use the Rotate gizmo in the viewport or enter degrees here.
+        </Hint>
+      </Section>
       <Section title="Surface">
         <NumberField label="Friction (μ)" value={stat.friction} step={0.05} min={0} onChange={(v) => patch({ friction: v })} />
         <NumberField label="Restitution (e)" value={stat.restitution} step={0.05} min={0} max={1} onChange={(v) => patch({ restitution: v })} />
@@ -724,6 +742,12 @@ function MeterInspector({ meter }: { meter: MeterEntity }) {
 
   return (
     <Section title="Meter">
+      <Vec3Field
+        groupLabel="Position"
+        labels={["x", "y", "z"]}
+        values={meter.position ?? [0, 0, 0]}
+        onChange={(v) => patch({ position: v })}
+      />
       <SelectField
         label="Target body"
         value={meter.target ?? ""}

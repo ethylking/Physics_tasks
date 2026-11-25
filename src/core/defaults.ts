@@ -107,12 +107,12 @@ export function createDefaultBody<K extends Tier1BodyKind>(
 export function createDefaultStatic(kind: "wall" | "ground", partial: Partial<StaticEntity> = {}): StaticEntity {
   return {
     id: newId(),
-    name: kind,
+    name: kind === "ground" ? "Horizontal plane" : "Wall",
     kind,
     plane:
       kind === "ground"
         ? { normal: [0, 0, 1], extent: [20, 20] }
-        : { normal: [1, 0, 0], extent: [10, 10] },
+        : { normal: [0, 1, 0], extent: [10, 10] },
     friction: 0.8,
     restitution: 0.2,
     ccd: true,

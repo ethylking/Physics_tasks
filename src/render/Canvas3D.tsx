@@ -53,7 +53,6 @@ export default function Canvas3D() {
   const tool = useSceneStore((s) => s.tool);
   const gizmoMode = useSceneStore((s) => s.gizmoMode);
   const simRunning = useTelemetryStore((s) => s.status === "running");
-  const simIdle = useTelemetryStore((s) => s.status === "idle");
   // Select stable store slices and resolve the entity in render — returning a
   // fresh `{ category, entity, index }` object from a Zustand v5 selector makes
   // `useSyncExternalStore` loop forever (blank app) as soon as anything is selected.
@@ -61,8 +60,9 @@ export default function Canvas3D() {
   const selectedId = useSceneStore((s) => s.selectedId);
   const selected = findEntityInProject(project, selectedId);
   const selectedBody = selected && selected.category === "bodies" ? (selected.entity as RigidBodyEntity) : null;
-  // The freshly spawned entity shows the post-creation axis arrows instead of
-  // the regular transform gizmo.
+  // In translate mode the axis arrows (vertical Z repositioning) and the
+  // horizontal X–Y transform gizmo coexist around the selected entity. The
+  // arrows show on every selection while translate mode is active.
   const axisArrowsId = useSceneStore((s) => s.axisArrowsId);
   const axisArrowRef = findEntityInProject(project, axisArrowsId);
   // While the transform gizmo is visible, left-drag belongs to the selected
@@ -124,14 +124,15 @@ export default function Canvas3D() {
       <axesHelper args={[1.4]} />
       <SceneContents />
       <VectorOverlays />
-      {axisArrowRef && simIdle && (
+      {axisArrowRef && !simRunning && gizmoMode === "translate" && (
         <AxisArrows entity={axisArrowRef.entity} category={axisArrowRef.category} flat={false} />
       )}
-      {selected && !axisArrowRef && !simRunning && (
+      {selected && !simRunning && (
         <TransformGizmo
           entityId={selected.entity.id}
           is2d={false}
-          mode={selected.category === "bodies" ? gizmoMode : "translate"}
+          mode={selected.category === "bodies" || selected.category === "statics" ? gizmoMode : "translate"}
+          translateAxes="xy"
         />
       )}
       {selectedBody && <CoMMarkers body={selectedBody} />}

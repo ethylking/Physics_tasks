@@ -172,6 +172,8 @@ export interface StaticEntity {
   plane: { normal: Vec3; extent: [number, number] };
   /** World point the plane passes through (defaults to the origin). */
   position?: Vec3;
+  /** Relative rotation applied AFTER the base orientation from `plane.normal` (identity = initial direction). */
+  rotation?: Quat;
   friction: number;
   restitution: number;
   ccd: boolean;

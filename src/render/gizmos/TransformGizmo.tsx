@@ -15,6 +15,8 @@ interface TransformGizmoProps {
   entityId: string;
   is2d: boolean;
   mode: "translate" | "rotate";
+  /** Axes offered by the 3D translate gizmo (only affects translate mode). */
+  translateAxes?: "xy" | "xz" | "xyz";
 }
 
 // three-stdlib's .d.ts hides `showX/showY/showZ` (they are plain public
@@ -41,7 +43,7 @@ interface CameraControls {
   enabled: boolean;
 }
 
-export function TransformGizmo({ entityId, is2d, mode }: TransformGizmoProps) {
+export function TransformGizmo({ entityId, is2d, mode, translateAxes = "xyz" }: TransformGizmoProps) {
   const { camera, gl } = useThree();
   // `makeDefault` cameras (OrbitControls in 3D, MapControls in 2D) register
   // themselves here. A gizmo drag must not also pan/orbit the camera.
@@ -52,25 +54,39 @@ export function TransformGizmo({ entityId, is2d, mode }: TransformGizmoProps) {
     const c = new TransformControls(camera, gl.domElement) as unknown as GizmoControls;
     c.setSpace("world");
     c.setMode(mode);
-    if (is2d) {
-      // 2D workspace = X–Z plane. `showX/Y/Z` gate both translation handles
-      // and rotation rings, so select the set that matches the current mode.
-      if (mode === "rotate") {
+    // `showX/Y/Z` gate both translation handles and rotation rings, so select
+    // the set that matches the current mode. 2D rotation happens only about
+    // the out-of-plane Y axis; 2D translation is confined to the X–Z plane.
+    if (mode === "rotate") {
+      if (is2d) {
         c.showX = false;
         c.showY = true;
         c.showZ = false;
       } else {
         c.showX = true;
-        c.showY = false;
+        c.showY = true;
         c.showZ = true;
       }
+    } else if (is2d) {
+      c.showX = true;
+      c.showY = false;
+      c.showZ = true;
+    } else if (translateAxes === "xy") {
+      // Horizontal X–Y drag incl. the XY-plane handle; Z via the axis arrows.
+      c.showX = true;
+      c.showY = true;
+      c.showZ = false;
+    } else if (translateAxes === "xz") {
+      c.showX = true;
+      c.showY = false;
+      c.showZ = true;
     } else {
       c.showX = true;
       c.showY = true;
       c.showZ = true;
     }
     return c;
-  }, [camera, gl, is2d, mode]);
+  }, [camera, gl, is2d, mode, translateAxes]);
 
   // Pause the default camera controls for the duration of a gizmo drag. This is
   // the same contract drei's <TransformControls> uses (`dragging-changed`).

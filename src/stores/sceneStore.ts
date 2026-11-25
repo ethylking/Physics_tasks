@@ -37,9 +37,9 @@ import {
   createDefaultStatic,
   PULLEY_GEOMETRY,
 } from "../core/defaults";
-import { eulerDegToQuat, quatToEulerDeg, worldToLocal } from "../math/rotation";
+import { eulerDegToQuat, quatInvert, quatMultiply, quatToEulerDeg, worldToLocal } from "../math/rotation";
 import type { SnapPoint } from "../render/gizmos/snapping";
-import { entityWorldPosition, translateEntityByDelta } from "../render/entities/positions";
+import { entityWorldPosition, staticBaseQuat, translateEntityByDelta } from "../render/entities/positions";
 import { useProjectStore } from "./projectStore";
 
 export type EntityCategory = "bodies" | "statics" | "joints" | "forces" | "ropes" | "meters";
@@ -114,9 +114,9 @@ interface SceneState {
   hoveredId: string | null;
   tool: SpawnTool | null;
   /**
-   * Entity that shows the post-creation axis-arrow controls. Set by spawning,
-   * cleared as soon as the user selects something else, picks a tool, or
-   * deletes/resets the scene.
+   * Entity that shows the post-creation axis-arrow controls. Follows the
+   * current selection (set by spawning or selecting), and is cleared when the
+   * user picks a palette tool or the entity is deleted / reset.
    */
   axisArrowsId: string | null;
   transport: TransportStatus;
@@ -180,14 +180,17 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
     if (!snapshot) return;
     const restored = cloneProject(snapshot);
     const selected = get().selectedId;
+    // A selection that survives the reset keeps its axis arrows; a dropped
+    // selection clears them.
+    const preservedSelectedId = selected && findEntityInProject(restored, selected) ? selected : null;
     set({
       project: restored,
       dirty: false,
       transport: "stopped",
       hoveredId: null,
       tool: null,
-      axisArrowsId: null,
-      selectedId: selected && findEntityInProject(restored, selected) ? selected : null,
+      axisArrowsId: preservedSelectedId,
+      selectedId: preservedSelectedId,
     });
   },
 
@@ -199,13 +202,9 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
     useProjectStore.getState().replaceCurrentProject(project);
   },
 
-  setSelected: (id) =>
-    set((state) => ({
-      selectedId: id,
-      // Re-selecting the freshly spawned object keeps its axis arrows;
-      // selecting anything else dismisses them.
-      axisArrowsId: id !== null && state.axisArrowsId === id ? id : null,
-    })),
+  // BUG FIX: the axis arrows must follow the selection — every time an object
+  // is selected, the arrows move to it; deselecting clears them.
+  setSelected: (id) => set({ selectedId: id, axisArrowsId: id }),
   setHovered: (id) => set({ hoveredId: id }),
   setTool: (tool) => set((state) => ({ tool, axisArrowsId: tool ? null : state.axisArrowsId })),
   setTransport: (status) => set({ transport: status }),
@@ -307,9 +306,19 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
     }
 
     // Statics & meters own an optional `position` field — write it absolutely.
+    // Statics additionally store the gizmo rotation RELATIVE to the base
+    // orientation implied by their plane normal (identity = initial direction).
     if (found.category === "statics") {
       const stat = found.entity as StaticEntity;
-      const updated = { ...stat, position: clampPos(position) };
+      const baseQuat = staticBaseQuat(stat.plane.normal);
+      const relQuat = quatMultiply(quatInvert(baseQuat), rotation);
+      // 2D: keep only the Y rotation component, like bodies.
+      let rot: Quat = relQuat;
+      if (is2d) {
+        const deg = quatToEulerDeg(relQuat);
+        rot = eulerDegToQuat([0, deg[1], 0]);
+      }
+      const updated = { ...stat, position: clampPos(position), rotation: rot };
       const arr = [...(project.statics as StaticEntity[])];
       arr[found.index] = updated;
       set({ project: { ...project, statics: arr }, dirty: true });
@@ -364,6 +373,15 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
         // Statics carry an optional `position`; place the plane so it passes
         // through the placement point instead of always sitting at the origin.
         (entity as StaticEntity).position = snap ? snap.point : surfacePoint;
+        // In 2D the workspace is the vertical X–Z plane, where a wall is a
+        // vertical LINE: the engine projects the normal into X–Z, so the 3D
+        // default (+Y) would degenerate. Use an in-plane normal instead.
+        if (mode === "2D" && tool.kind === "wall") {
+          (entity as StaticEntity).plane = {
+            ...(entity as StaticEntity).plane,
+            normal: [1, 0, 0],
+          };
+        }
         break;
       }
       case "joints":

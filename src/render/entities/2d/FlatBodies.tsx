@@ -4,7 +4,8 @@
 import { useMemo } from "react";
 import * as THREE from "three";
 import { Edges } from "@react-three/drei";
-import type { RigidBodyEntity, StaticEntity as StaticEntityType, Vec3 } from "../../../core/types";
+import type { Quat, RigidBodyEntity, StaticEntity as StaticEntityType, Vec3 } from "../../../core/types";
+import { eulerDegToQuat, quatToEulerDeg } from "../../../math/rotation";
 import { EntityGroup, useHighlight } from "../EntityGroup";
 import { useSceneStore } from "../../../stores/sceneStore";
 import { createWedgeShapeGeometry, DEFAULT_WEDGE } from "../../geometry/wedge";
@@ -94,8 +95,17 @@ export function StaticEntity2D({ stat }: { stat: StaticEntityType }) {
     ? [0, 0, stat.position?.[2] ?? 0]
     : [stat.position?.[0] ?? 0, 0, stat.position?.[2] ?? 0];
 
+  // A 2D static rotates only about Y (out-of-plane), like 2D bodies: take the
+  // Y (pitch) component of the stored relative rotation so the wall line is
+  // inclined at the same angle the physics uses.
+  const rotation = useMemo((): Quat => {
+    const rel = stat.rotation ?? [0, 0, 0, 1];
+    const deg = quatToEulerDeg(rel);
+    return eulerDegToQuat([0, deg[1], 0]);
+  }, [stat.rotation]);
+
   return (
-    <EntityGroup id={stat.id} position={position} rotation={[0, 0, 0, 1]}>
+    <EntityGroup id={stat.id} position={position} rotation={rotation}>
       <mesh geometry={geometry} rotation={[Math.PI / 2, 0, 0]}>
         <meshBasicMaterial color={highlighted ? "#22d3ee" : color} transparent opacity={0.95} side={THREE.DoubleSide} />
       </mesh>

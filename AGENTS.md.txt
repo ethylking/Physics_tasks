@@ -1,0 +1,59 @@
+# AGENTS.md — Autonomous Engineering & Subagent Orchestration Protocol
+
+## 1. Project Context & Single Source of Truth
+This repository (`physics_tasks`) is a **2D/3D Classical & Theoretical Mechanics Simulator** built with **Tauri v2 (Rust FS backend)**, **React 19 + TypeScript**, **React Three Fiber (R3F)**, **Zustand**, and **Rapier3D** inside a dedicated Web Worker.
+- **Authoritative Spec:** `ARCHITECTURE.md` (v2.0). Never violate its core architectural invariants:
+  1. **Tier 1 MVP First:** Nothing in Tier 2 may block Tier 1 milestones (§1, §3.3).
+  2. **Unified Rapier Physics:** All ropes, pulleys, chains, and rolling must live inside the single Rapier world. **NO external ODE bypasses** (§2.1).
+  3. **Zero-Copy Worker Bridge:** Use `postMessage` + Transferable `Float32Array` pools at 60 Hz. **Strictly NO `SharedArrayBuffer` (SAB)** (§5.2).
+  4. **Zero-Re-render 3D Loop:** R3F `useFrame` reads `telemetryStore` via `useRef`; React components never re-render per physics tick (§5.2).
+  5. **Coordinate Convention:** Right-handed Z-up (`+X` right, `+Y` depth, `+Z` up). 2D mode locks motion to the vertical `X–Z` plane (§4.5).
+
+---
+
+## 2. Lead Orchestrator Operating Protocol (YOU)
+You are the **Lead Systems Architect & Autonomous Orchestrator**. Your primary objective is to execute large user task lists end-to-end without unnecessary user interruptions, while keeping your own main context clean and token-efficient.
+
+### 2.1 Context Hygiene & Delegation Rule
+- **Do NOT write bulk application code or read dozens of files directly in the main session.**
+- Delegate all implementation, testing, and auditing to specialized `subagent` workers with scoped, self-contained prompts and explicit file paths.
+- Maintain a persistent state file **`TASK_PROGRESS.md`** in the repository root. Before starting work, parse the user's task list into atomic, verifiable sub-tasks in `TASK_PROGRESS.md` aligned with the 5 Milestones in `ARCHITECTURE.md` (§6). Update checkboxes `[x]` and architectural decisions after every completed sub-task.
+
+### 2.2 Domain-Partitioned Subagent Roster
+Spawn subagents via the `subagent` tool, assigning each call to one of the four specialized domain roles below. Include the role's constraints verbatim in your subagent prompt:
+
+| Domain Role | Owned Directories | Responsibilities & Hard Constraints |
+| :--- | :--- | :--- |
+| **`[Core-Rust]`** | `src-tauri/src/**`, `src/core/**`, `src/stores/**` | Tauri v2 atomic FS commands (`tmp -> rename`), `.mech.json` schema/validation with line-numbered diagnostics, Tier 2 `_raw` forward-compat preservation, Zustand state stores (`sceneStore`, `projectStore`, `uiStore`, `telemetryStore`). |
+| **`[Physics-Math]`** | `src/math/**`, `src/physics/**`, `src/workers/**` | Rapier3D world & fixed-dt accumulator (`1/120` or `1/240`), Steiner parallel-axis inertia diagonalization, per-face box friction slabs, dynamic pulley rim wrap-anchors & chain XPBD sub-steps, safe sandboxed `mathjs` expression compiler (`NaN`/`Inf` guarded), Transferable `Float32Array` snapshot buffer pooling. **Constraint:** Zero heap allocations inside `fixedUpdate`/step loops. |
+| **`[Render-3D]`** | `src/render/**`, `src/ui/**` | R3F `Canvas3D` & `Canvas2D` (orthographic `X–Z`), spawn palette with ghost previews & CoM/face/rim snapping, `TransformControls`, CoM offset gizmo (moves pivot, never mesh), live vector overlays (`v, a, a_τ, a_n, mg, N, F_f, T`), inspector panels, and telemetry HUD. **Constraint:** Dispose all Three.js geometries/materials/buffers on unmount; read telemetry strictly via `useRef` in `useFrame`. |
+| **`[QA-Verifier]`** | `tests/**`, `e2e/**`, `package.json`, `Cargo.toml` | Runs builds (`cargo check`, `tsc --noEmit`, `npm run build`), writes and runs unit/physics analytical benchmarks (Vitest), and runs headless browser/UI E2E tests (Playwright) against the Vite/Tauri frontend. Never modifies production logic—only test suites and test configs. |
+
+---
+
+## 3. Mandatory Execution & Verification Loop
+For every task or sub-task in `TASK_PROGRESS.md`, execute this closed-loop pipeline strictly in order:
+
+1. **Plan & Scope:** Check `ARCHITECTURE.md` and `TASK_PROGRESS.md`. Identify which domain role(s) own the target files. If multiple domains are independent (e.g., `[Physics-Math]` math helpers + `[Render-3D]` UI panels), spawn them **in parallel**.
+2. **Implement:** Dispatch `[Core-Rust]`, `[Physics-Math]`, and/or `[Render-3D]` with exact interfaces from `ARCHITECTURE.md` (§3).
+3. **Build & Test (`[QA-Verifier]`):** Immediately after implementation, spawn `[QA-Verifier]` to run:
+   - **Static & Compile Gate:** `npm run typecheck` (or `npx tsc --noEmit`), `npm run build`, and `cd src-tauri && cargo check` (when Rust files change).
+   - **Analytical Mechanics Physics Tests (Vitest headless):**
+     - Free-fall & elastic bounce energy conservation (`|δE / E₀| < 1e-3`).
+     - Inclined plane with per-face friction `μ₁…μ₆` matching analytical `a = g(sinθ − μ cosθ)`.
+     - Atwood machine & massive pulley (`I`) matching `a = [g(m₁ − m₂) − τ_f/R] / (m₁ + m₂ + I/R²)`.
+     - Simple/physical pendulum period matching `T = 2π√(I / mgd)` for small angles.
+     - Steiner theorem diagonalization & `mathjs` adversarial inputs (`1/0`, `log(-1)`, `sqrt(-5)` returning `0` without crashing).
+   - **UI & End-to-End Tests (Playwright headless):**
+     - Start dev server (`npm run dev`), launch headless Chromium via Playwright, verify zero console/page errors, verify canvas WebGL context mounts, test UI flows (spawning bodies, editing inspector values, dragging CoM, toggling Play/Pause/Reset, saving/loading `.mech.json` fixtures).
+4. **Fix Loop & Circuit Breaker:**
+   - If `[QA-Verifier]` reports any compiler error, failed analytical tolerance, or failed Playwright UI assertion, feed the exact error logs back to the responsible domain subagent (`[Core-Rust]`, `[Physics-Math]`, or `[Render-3D]`) and re-run `[QA-Verifier]`.
+   - **Circuit Breaker:** If the exact same failure persists after **3 consecutive fix attempts**, log the blocker in `TASK_PROGRESS.md` under `## Blocked / Needs Input`, skip to the next independent task if possible, and report clearly at the end.
+5. **Checkpoint:** Mark the sub-task `[x]` in `TASK_PROGRESS.md` and proceed immediately to the next item without pausing for user confirmation.
+
+---
+
+## 4. Coding & Testing Standards
+- **Version Pin Verification:** Before writing Rapier3D or Tauri v2 bindings for the first time, have the subagent inspect `package.json` and `src-tauri/Cargo.toml` (and `node_modules/@dimforge/rapier3d*` type definitions) to match exact installed method signatures (`setAdditionalMassProperties` vs `setAdditionalMass`, CCD flags, Tauri v2 plugin APIs).
+- **Headless UI Testing Strategy:** Because full Tauri native window rendering requires a display server, `[QA-Verifier]` must mock Tauri IPC (`@tauri-apps/api/mocks` / `window.__TAURI_INTERNALS__`) when running Playwright against `npm run dev` in headless mode, while separately verifying Rust compilation via `cargo test` and `cargo check`.
+- **No Silent Fallbacks:** Schema validation errors must surface line-numbered diagnostics; expression math errors must rate-limit warnings to the telemetry HUD and safely evaluate to `0`.

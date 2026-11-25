@@ -124,6 +124,8 @@
             "extent": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
           }
         },
+        "position": { "$ref": "#/definitions/vec3" },
+        "rotation": { "$ref": "#/definitions/quat" },
         "friction": { "type": "number" },
         "restitution": { "type": "number" },
         "ccd": { "type": "boolean" },

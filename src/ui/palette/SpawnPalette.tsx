@@ -50,7 +50,7 @@ const TOOL_GROUPS: Array<{ label: string; tools: ToolDef[] }> = [
     label: "Statics",
     tools: [
       { category: "statics", kind: "wall", label: "Wall", icon: PanelLeft },
-      { category: "statics", kind: "ground", label: "Ground", icon: RectangleHorizontal },
+      { category: "statics", kind: "ground", label: "Horizontal plane", icon: RectangleHorizontal },
     ],
   },
   {

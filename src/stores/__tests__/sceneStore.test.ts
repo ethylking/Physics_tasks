@@ -4,8 +4,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useSceneStore } from "../sceneStore";
 import { useProjectStore } from "../projectStore";
-import { createDefaultProject } from "../../core/defaults";
+import { createDefaultProject, createDefaultStatic } from "../../core/defaults";
 import { computeBodySnapPoints } from "../../render/gizmos/snapping";
+import { staticBaseQuat } from "../../render/entities/positions";
+import { eulerDegToQuat, quatMultiply, quatToEulerDeg } from "../../math/rotation";
 import type { JointEntity, MechProject, Quat } from "../../core/types";
 
 function resetStores() {
@@ -179,10 +181,83 @@ describe("sceneStore — entity mutations", () => {
     expect(ground?.position).toEqual([1, 2, 0.25]);
   });
 
+  it("spawnFromTool gives 2D walls an in-plane normal while 3D walls stay vertical", () => {
+    const project2d = createDefaultProject("2D wall", "2D");
+    useSceneStore.getState().loadFromProject(project2d);
+    const wall2dId = useSceneStore.getState().spawnFromTool(
+      { category: "statics", kind: "wall", label: "Wall" },
+      [1, 0, 2],
+      null,
+    );
+    const wall2d = useSceneStore.getState().project?.statics.find((s) => s.id === wall2dId);
+    // A 2D wall is a vertical LINE in the X–Z workspace: +Y would degenerate.
+    expect(wall2d?.plane.normal).toEqual([1, 0, 0]);
+
+    const project3d = createDefaultProject("3D wall", "3D");
+    useSceneStore.getState().loadFromProject(project3d);
+    const wall3dId = useSceneStore.getState().spawnFromTool(
+      { category: "statics", kind: "wall", label: "Wall" },
+      [1, 2, 3],
+      null,
+    );
+    const wall3d = useSceneStore.getState().project?.statics.find((s) => s.id === wall3dId);
+    // 3D walls keep the new vertical default (normal ±Y, spanning X–Z).
+    expect(wall3d?.plane.normal).toEqual([0, 1, 0]);
+  });
+
+  it("writeTransform stores a static's position and base-relative rotation", () => {
+    const project = createDefaultProject("Static rot", "3D");
+    useSceneStore.getState().loadFromProject(project);
+    const ground = project.statics[0]!;
+    // Ground base orientation is identity (normal +Z), so the stored rotation
+    // equals the incoming world rotation.
+    useSceneStore.getState().updateEntity(ground.id, {
+      plane: { normal: [0, 0, 1], extent: [20, 20] },
+    });
+    useSceneStore.getState().writeTransform(ground.id, [2, 3, 4], eulerDegToQuat([0, 30, 0]));
+    const updatedGround = useSceneStore.getState().project?.statics.find((s) => s.id === ground.id);
+    expect(updatedGround?.name).toBe("Horizontal plane");
+    expect(updatedGround?.position).toEqual([2, 3, 4]);
+    expect(quatToEulerDeg(updatedGround?.rotation ?? [0, 0, 0, 1])[1]).toBeCloseTo(30, 5);
+  });
+
+  it("writeTransform stores wall rotation relative to the wall's own base orientation", () => {
+    const project = createDefaultProject("Wall rot", "3D");
+    useSceneStore.getState().loadFromProject(project);
+    // The default wall normal is now [0,1,0] (vertical, spanning X–Z).
+    const wall = createDefaultStatic("wall");
+    useSceneStore.getState().addEntity("statics", wall);
+    expect(wall.name).toBe("Wall");
+    expect(wall.plane.normal).toEqual([0, 1, 0]);
+
+    // Rotating the wall 90° about X from its initial orientation ⇒ the
+    // stored rotation is 90° about X RELATIVE to the wall's base frame.
+    const baseQuat = staticBaseQuat(wall.plane.normal);
+    const worldAfterX90 = quatMultiply(baseQuat, eulerDegToQuat([90, 0, 0]));
+    useSceneStore.getState().writeTransform(wall.id, [1, 2, 3], worldAfterX90);
+    const rotatedWall = useSceneStore.getState().project?.statics.find((s) => s.id === wall.id);
+    expect(rotatedWall?.position).toEqual([1, 2, 3]);
+    const relEuler = quatToEulerDeg(rotatedWall?.rotation ?? [0, 0, 0, 1]);
+    expect(relEuler[0]).toBeCloseTo(90, 5);
+
+    // Round-trip: base ∘ rel must reproduce the gizmo's world quaternion for
+    // an arbitrary raw world rotation (pins the writeTransform decomposition).
+    const rawWorld = eulerDegToQuat([90, 0, 0]);
+    useSceneStore.getState().writeTransform(wall.id, [1, 2, 3], rawWorld);
+    const rawWall = useSceneStore.getState().project?.statics.find((s) => s.id === wall.id);
+    const rawRel = rawWall?.rotation ?? [0, 0, 0, 1];
+    const back = quatMultiply(baseQuat, rawRel);
+    const dot = Math.abs(
+      back[0] * rawWorld[0] + back[1] * rawWorld[1] + back[2] * rawWorld[2] + back[3] * rawWorld[3],
+    );
+    expect(dot).toBeCloseTo(1, 5);
+  });
+
   it("shows the post-creation axis arrows only for the freshly spawned entity", () => {
     const project = createDefaultProject("Arrows", "3D");
     useSceneStore.getState().loadFromProject(project);
     const store = useSceneStore.getState();
+    const otherId = project.bodies[0]!.id;
 
     const boxId = store.spawnFromTool(
       { category: "bodies", kind: "box", label: "Box" },
@@ -195,8 +270,12 @@ describe("sceneStore — entity mutations", () => {
     useSceneStore.getState().setSelected(boxId);
     expect(useSceneStore.getState().axisArrowsId).toBe(boxId);
 
-    // Selecting anything else dismisses them.
-    useSceneStore.getState().setSelected(project.bodies[0]!.id);
+    // Selecting another entity MOVES the arrows to that entity (bug fix).
+    useSceneStore.getState().setSelected(otherId);
+    expect(useSceneStore.getState().axisArrowsId).toBe(otherId);
+
+    // Deselecting clears the arrows.
+    useSceneStore.getState().setSelected(null);
     expect(useSceneStore.getState().axisArrowsId).toBeNull();
 
     // Spawning again moves the arrows to the new entity…

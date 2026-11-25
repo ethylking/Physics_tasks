@@ -112,6 +112,31 @@ function wedgeVertices(W: number, H: number, D: number, thetaDeg: number): Float
   return new Float32Array(pts);
 }
 
+/**
+ * Effective half-space normal of a static entity: the stored `plane.normal`
+ * (normalized) rotated by the entity's RELATIVE `rotation` — render parity,
+ * the mesh is drawn with world quat = baseQuat(normal) × rotation, so the
+ * collider must tilt with it (identity = the base orientation). In 2D the
+ * normal is projected into the vertical X–Z plane: a rotated wall becomes an
+ * inclined line, and a pure +Y normal (which would degenerate to zero after
+ * projection) falls back to +X.
+ */
+export function effectiveStaticNormal(
+  stat: MechProject["statics"][number],
+  mode: ProjectMode,
+): Vec3 {
+  const n0 = stat.plane.normal;
+  const len = Math.hypot(n0[0], n0[1], n0[2]) || 1;
+  const rot: Quat = stat.rotation ?? [0, 0, 0, 1];
+  let n: Vec3 = rotateVec3ByQuat([n0[0] / len, n0[1] / len, n0[2] / len], rot);
+  if (mode === "2D") {
+    n = [n[0], 0, n[2]];
+    const lenXZ = Math.hypot(n[0], n[2]);
+    n = lenXZ < 1e-6 ? [1, 0, 0] : [n[0] / lenXZ, 0, n[2] / lenXZ];
+  }
+  return n;
+}
+
 export class PhysicsEngine {
   readonly world: RAPIER.World;
   readonly bodyIds: string[] = [];
@@ -219,9 +244,13 @@ export class PhysicsEngine {
   private buildStatic(stat: MechProject["statics"][number], rapier: typeof RAPIER): void {
     const desc = rapier.RigidBodyDesc.fixed();
     const rb = this.world.createRigidBody(desc);
-    const n = stat.plane.normal;
-    const len = Math.hypot(n[0], n[1], n[2]) || 1;
-    const cd = new rapier.ColliderDesc(new rapier.HalfSpace({ x: n[0] / len, y: n[1] / len, z: n[2] / len }));
+    // Relative-rotation semantics (render parity): the effective half-space
+    // normal is the stored plane normal rotated by `stat.rotation`, so the
+    // collider tilts exactly like the rendered mesh (world quat =
+    // baseQuat(normal) × rotation). 2D projects the normal into the X–Z
+    // plane so a rotated wall reads as an inclined line.
+    const n = effectiveStaticNormal(stat, this.mode);
+    const cd = new rapier.ColliderDesc(new rapier.HalfSpace({ x: n[0], y: n[1], z: n[2] }));
     cd.setFriction(stat.friction).setRestitution(stat.restitution);
     // The half-space is infinite through the origin; offset its collider so the
     // plane passes through the entity's position (movable statics).

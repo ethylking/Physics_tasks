@@ -3,8 +3,9 @@
 
 import { useMemo } from "react";
 import * as THREE from "three";
-import type { Quat, StaticEntity as StaticEntityType, Vec3 } from "../../core/types";
+import type { StaticEntity as StaticEntityType, Vec3 } from "../../core/types";
 import { EntityGroup, useHighlight } from "./EntityGroup";
+import { staticWorldQuat } from "./positions";
 
 const ORIGIN: Vec3 = [0, 0, 0];
 
@@ -17,12 +18,9 @@ export function StaticEntity({ stat }: { stat: StaticEntityType }) {
   const color = stat.appearance?.color ?? "#3f3f46";
   const opacity = stat.appearance?.opacity ?? 0.85;
 
-  // Orient the plane mesh so its +Z normal points along the wall/ground normal.
-  const rotation = useMemo((): Quat => {
-    const normal = new THREE.Vector3(stat.plane.normal[0], stat.plane.normal[1], stat.plane.normal[2]);
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-    return [q.x, q.y, q.z, q.w];
-  }, [stat.plane.normal]);
+  // Orient the plane mesh so its +Z normal points along the wall/ground normal
+  // (the base orientation), then apply the stored rotation relative to it.
+  const rotation = useMemo(() => staticWorldQuat(stat), [stat.plane.normal, stat.rotation]);
 
   const isGround = stat.kind === "ground";
   const w = num(stat.plane.extent[0], isGround ? 20 : 10);

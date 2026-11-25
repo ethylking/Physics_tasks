@@ -53,14 +53,14 @@ export default function Canvas2D() {
   const tool = useSceneStore((s) => s.tool);
   const gizmoMode = useSceneStore((s) => s.gizmoMode);
   const simRunning = useTelemetryStore((s) => s.status === "running");
-  const simIdle = useTelemetryStore((s) => s.status === "idle");
   // Select stable store slices and resolve the entity in render (see Canvas3D).
   const project = useSceneStore((s) => s.project);
   const selectedId = useSceneStore((s) => s.selectedId);
   const selected = findEntityInProject(project, selectedId);
   const selectedBody = selected && selected.category === "bodies" ? (selected.entity as RigidBodyEntity) : null;
-  // The freshly spawned entity shows the post-creation axis arrows instead of
-  // the regular transform gizmo.
+  // In translate mode the axis arrows (vertical Z repositioning) and the
+  // X–Z transform gizmo coexist around the selected entity. The arrows show
+  // on every selection while translate mode is active.
   const axisArrowsId = useSceneStore((s) => s.axisArrowsId);
   const axisArrowRef = findEntityInProject(project, axisArrowsId);
   // Left-drag is reserved for the object gizmo while it is shown; pan moves to
@@ -108,14 +108,15 @@ export default function Canvas2D() {
       <axesHelper args={[1]} />
       <SceneContents2D />
       <VectorOverlays />
-      {axisArrowRef && simIdle && (
+      {axisArrowRef && !simRunning && gizmoMode === "translate" && (
         <AxisArrows entity={axisArrowRef.entity} category={axisArrowRef.category} flat />
       )}
-      {selected && !axisArrowRef && !simRunning && (
+      {selected && !simRunning && (
         <TransformGizmo
           entityId={selected.entity.id}
           is2d
-          mode={selected.category === "bodies" ? gizmoMode : "translate"}
+          mode={selected.category === "bodies" || selected.category === "statics" ? gizmoMode : "translate"}
+          translateAxes="xz"
         />
       )}
       {selectedBody && <CoMMarkers body={selectedBody} flat />}

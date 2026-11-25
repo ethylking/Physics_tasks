@@ -46,7 +46,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   meters: "Meter",
 };
 
-export default function Inspector() {
+export default function Inspector({ width }: { width: number }) {
   const project = useSceneStore((s) => s.project);
   const selectedId = useSceneStore((s) => s.selectedId);
   const running = useTelemetryStore((s) => s.status === "running");
@@ -54,7 +54,10 @@ export default function Inspector() {
 
   if (!found) {
     return (
-      <aside className="flex w-72 shrink-0 flex-col items-center justify-center border-l border-zinc-800 bg-zinc-950 p-6 text-center text-zinc-600">
+      <aside
+        style={{ width }}
+        className="flex h-full shrink-0 flex-col items-center justify-center border-l border-zinc-800 bg-zinc-950 p-6 text-center text-zinc-600"
+      >
         <MousePointer2 className="mb-3 h-6 w-6" />
         <p className="text-xs leading-relaxed">
           Select an entity in the viewport to edit its properties.
@@ -64,7 +67,10 @@ export default function Inspector() {
   }
 
   return (
-    <aside className="relative flex w-72 shrink-0 flex-col border-l border-zinc-800 bg-zinc-950">
+    <aside
+      style={{ width }}
+      className="relative flex h-full shrink-0 flex-col border-l border-zinc-800 bg-zinc-950"
+    >
       <InspectorHeader category={found.category} />
       <div className={`min-h-0 flex-1 space-y-3 overflow-y-auto p-3 ${running ? "pointer-events-none opacity-40" : ""}`}>
         {found.category === "bodies" && <BodyInspector body={found.entity as RigidBodyEntity} />}

@@ -52,7 +52,10 @@ export default function Canvas2D() {
 
   const tool = useSceneStore((s) => s.tool);
   const gizmoMode = useSceneStore((s) => s.gizmoMode);
-  const simRunning = useTelemetryStore((s) => s.status === "running");
+  // EDIT controls only exist while the EDIT state owns the rendered pose (see
+  // Canvas3D): Play and a stepped frame (`viewPose`) hand the meshes to the
+  // worker snapshot, so edit handles are hidden until the editor owns them again.
+  const simulated = useTelemetryStore((s) => s.status === "running" || s.viewPose);
   // Select stable store slices and resolve the entity in render (see Canvas3D).
   const project = useSceneStore((s) => s.project);
   const selectedId = useSceneStore((s) => s.selectedId);
@@ -63,10 +66,10 @@ export default function Canvas2D() {
   // on every selection while translate mode is active.
   const axisArrowsId = useSceneStore((s) => s.axisArrowsId);
   const axisArrowRef = findEntityInProject(project, axisArrowsId);
-  // Left-drag is reserved for the object gizmo while it is shown; pan moves to
-  // the middle button. Right-drag never moves the camera in 2D (rotation is
+  // Left-drag is reserved for the object gizmo/edit state while shown; pan moves
+  // to the middle button. Right-drag never moves the camera in 2D (rotation is
   // locked by design), so the gizmo drag can never shift the view.
-  const gizmoActive = selected !== null && !simRunning;
+  const gizmoActive = selected !== null && !simulated;
 
   return (
     <Canvas
@@ -108,10 +111,10 @@ export default function Canvas2D() {
       <axesHelper args={[1]} />
       <SceneContents2D />
       <VectorOverlays />
-      {axisArrowRef && !simRunning && gizmoMode === "translate" && (
+      {axisArrowRef && !simulated && gizmoMode === "translate" && (
         <AxisArrows entity={axisArrowRef.entity} category={axisArrowRef.category} flat />
       )}
-      {selected && !simRunning && (
+      {selected && !simulated && (
         <TransformGizmo
           entityId={selected.entity.id}
           is2d
@@ -120,7 +123,7 @@ export default function Canvas2D() {
         />
       )}
       {selectedBody && <CoMMarkers body={selectedBody} flat />}
-      {tool && !simRunning && <SpawnController tool={tool} flat />}
+      {tool && !simulated && <SpawnController tool={tool} flat />}
       <PhysicsDriver />
     </Canvas>
   );

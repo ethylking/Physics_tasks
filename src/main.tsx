@@ -4,6 +4,7 @@ import App from "./App";
 import "./index.css";
 import { useSceneStore } from "./stores/sceneStore";
 import { useTelemetryStore } from "./stores/telemetryStore";
+import { entityObjectRegistry } from "./render/registry";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -17,5 +18,14 @@ if (import.meta.env.DEV || import.meta.env.MODE === "test") {
   (window as unknown as Record<string, unknown>).__mechlab = {
     scene: useSceneStore,
     telemetry: useTelemetryStore,
+    /** Live rendered transform of an entity's Object3D (null when not mounted). */
+    getRenderTransform: (id: string) => {
+      const obj = entityObjectRegistry.get(id);
+      if (!obj) return null;
+      return {
+        position: obj.position.toArray(),
+        quaternion: obj.quaternion.toArray(),
+      };
+    },
   };
 }

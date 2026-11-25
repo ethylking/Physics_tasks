@@ -36,7 +36,7 @@ beforeEach(() => {
 
 describe("Inspector", () => {
   it("renders all six per-face friction inputs for a selected box", () => {
-    render(<Inspector />);
+    render(<Inspector width={288} />);
     for (const label of FACE_LABELS) {
       expect(screen.getByLabelText(`${label} friction`)).toBeInTheDocument();
     }
@@ -46,12 +46,12 @@ describe("Inspector", () => {
     const store = useSceneStore.getState();
     const id = store.spawnFromTool({ category: "bodies", kind: "sphere", label: "Sphere" }, [0, 0, 0], null);
     useSceneStore.getState().setSelected(id);
-    render(<Inspector />);
+    render(<Inspector width={288} />);
     expect(screen.queryByLabelText("+X (right) friction")).not.toBeInTheDocument();
   });
 
   it("changing box dimensions updates the store geometry and marks the scene dirty", () => {
-    render(<Inspector />);
+    render(<Inspector width={288} />);
     fireEvent.change(screen.getByLabelText("Width (W)"), { target: { value: "2.5" } });
     fireEvent.change(screen.getByLabelText("Height (H)"), { target: { value: "0.75" } });
 
@@ -62,7 +62,7 @@ describe("Inspector", () => {
   });
 
   it("editing per-face friction writes the faceFriction array", () => {
-    render(<Inspector />);
+    render(<Inspector width={288} />);
     fireEvent.change(screen.getByLabelText("+X (right) friction"), { target: { value: "0.9" } });
     fireEvent.change(screen.getByLabelText("-Y (front) friction"), { target: { value: "0.2" } });
 
@@ -74,7 +74,7 @@ describe("Inspector", () => {
 
   it("shifting the CoM offset moves centerOfMass but leaves initial.position untouched", () => {
     const before = [...selectedBox().initial.position] as [number, number, number];
-    render(<Inspector />);
+    render(<Inspector width={288} />);
 
     fireEvent.change(screen.getByLabelText("CoM offset dx"), { target: { value: "0.3" } });
     fireEvent.change(screen.getByLabelText("CoM offset dy"), { target: { value: "-0.2" } });
@@ -87,7 +87,7 @@ describe("Inspector", () => {
   });
 
   it("editing name and mass updates the store", () => {
-    render(<Inspector />);
+    render(<Inspector width={288} />);
     fireEvent.change(screen.getByLabelText("Entity name"), { target: { value: "Crate" } });
     fireEvent.change(screen.getByLabelText("Mass (kg)"), { target: { value: "12" } });
 

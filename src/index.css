@@ -52,6 +52,29 @@ body {
   .confirm-delete-btn {
     @apply rounded-md bg-red-600/90 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wide text-white transition-colors hover:bg-red-500;
   }
+  .resize-handle {
+    @apply relative h-full w-1.5 shrink-0 cursor-col-resize select-none bg-transparent transition-colors;
+  }
+  .resize-handle::before {
+    content: "";
+    @apply absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-zinc-800 transition-colors;
+  }
+  .resize-handle:hover::before,
+  .resize-handle[data-dragging="true"]::before {
+    @apply bg-cyan-500;
+  }
+  .resize-handle:focus-visible {
+    @apply outline-none;
+  }
+  .resize-handle:focus-visible::before {
+    @apply bg-cyan-400;
+  }
+}
+
+/* While a panel divider is dragged, keep the resize cursor everywhere. */
+body.resizing-panels {
+  cursor: col-resize;
+  user-select: none;
 }
 
 /* Placeholder workspace grid (replaced by the R3F canvas in Milestone 2). */

@@ -10,6 +10,7 @@ import type { Object3D } from "three";
 import type { Quat, Vec3 } from "../../core/types";
 import { useSceneStore } from "../../stores/sceneStore";
 import { entityObjectRegistry } from "../registry";
+import { gizmoHandleAxis } from "./gizmoHandleAxis";
 
 interface TransformGizmoProps {
   entityId: string;
@@ -142,7 +143,17 @@ export function TransformGizmo({ entityId, is2d, mode, translateAxes = "xyz" }: 
     };
   }, [controls, entityId, writeTransform]);
 
-  useFrame(() => controls.update());
+  // Publish the hovered/dragged handle axis for the body-drag guard in
+  // EntityGroup (a handle drag and a body drag must not start together).
+  useFrame(() => {
+    controls.update();
+    gizmoHandleAxis.axis = controls.axis;
+  });
+
+  // Never leave a stale handle axis behind after the gizmo unmounts.
+  useEffect(() => () => {
+    gizmoHandleAxis.axis = null;
+  }, []);
 
   return <primitive object={controls as unknown as Object3D} />;
 }

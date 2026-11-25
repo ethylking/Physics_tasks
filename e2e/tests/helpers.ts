@@ -6,6 +6,7 @@
 // number arrays inside the page.
 
 import type { Page } from "@playwright/test";
+import * as THREE from "three";
 
 /** Console errors + page errors collected across the whole run (test 7). */
 export const consoleErrors: string[] = [];
@@ -59,4 +60,54 @@ export async function canvasBox(page: Page): Promise<{ x: number; y: number; wid
 export async function clickCanvasAt(page: Page, xFrac: number, yFrac: number): Promise<void> {
   const box = await canvasBox(page);
   await page.mouse.click(box.x + box.width * xFrac, box.y + box.height * yFrac);
+}
+
+/** Live rendered transform of an entity's Object3D (null while not mounted). */
+export interface RenderTransform {
+  position: [number, number, number];
+  quaternion: [number, number, number, number];
+}
+
+/**
+ * Read the actual rendered pose through the dev hook (`getRenderTransform` on
+ * `window.__mechlab`, backed by the entity Object3D registry). This is how the
+ * suite proves that meshes follow the store coordinates (edit ownership) or the
+ * worker snapshot (simulation ownership).
+ */
+export async function getRenderTransform(page: Page, id: string): Promise<RenderTransform | null> {
+  return page.evaluate((entityId) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const hook = (window as any).__mechlab;
+    return (hook.getRenderTransform(entityId) ?? null) as RenderTransform | null;
+  }, id);
+}
+
+/**
+ * Screen position (viewport pixels) of a world point in the 3D viewport.
+ *
+ * The projection replicates the R3F canvas camera EXACTLY: the Canvas3D camera
+ * is `position [9,-9,7]`, `up [0,0,1]`, `fov 50`, `near 0.1`, `far 500`, and
+ * OrbitControls starts with `target [0,0,0.5]`, so it looks at that target on
+ * the first update. The aspect comes from the live canvas bounding box and the
+ * NDC point is mapped back through the same box.
+ *
+ * Valid only while the camera has not been orbited/panned — the regression
+ * scenarios never touch the camera controls.
+ */
+export async function projectWorld(
+  page: Page,
+  world: [number, number, number],
+): Promise<{ x: number; y: number }> {
+  const box = await canvasBox(page);
+  const camera = new THREE.PerspectiveCamera(50, box.width / box.height, 0.1, 500);
+  camera.position.set(9, -9, 7);
+  camera.up.set(0, 0, 1);
+  camera.lookAt(0, 0, 0.5);
+  camera.updateMatrixWorld();
+
+  const projected = new THREE.Vector3(world[0], world[1], world[2]).project(camera);
+  return {
+    x: box.x + ((projected.x + 1) / 2) * box.width,
+    y: box.y + ((1 - projected.y) / 2) * box.height,
+  };
 }

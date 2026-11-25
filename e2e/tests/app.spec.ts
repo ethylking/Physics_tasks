@@ -25,6 +25,7 @@ import {
   collectConsoleErrors,
   consoleErrors,
   getBodyOrder,
+  getRenderTransform,
   getScene,
   getSnapshot,
   getTelemetry,
@@ -62,6 +63,24 @@ async function snapshotBoxZ(): Promise<number | null> {
   const idx = order.indexOf(boxId);
   if (idx < 0 || snap.length < HEADER + (idx + 1) * STRIDE) return null;
   return snap[HEADER + idx * STRIDE + OFF_Z] ?? null;
+}
+
+/** Current EDIT-store position of the tracked box. */
+async function boxPosition(): Promise<[number, number, number]> {
+  const scene = await getScene(page);
+  const box = scene.project.bodies.find((b: { id: string }) => b.id === boxId);
+  return box.initial.position as [number, number, number];
+}
+
+/** Max per-axis distance between the rendered mesh pose and the edit store. */
+async function renderStoreDistance(): Promise<number> {
+  const [store, render] = await Promise.all([boxPosition(), getRenderTransform(page, boxId)]);
+  if (!render) return Number.POSITIVE_INFINITY;
+  return Math.max(
+    Math.abs(render.position[0] - store[0]),
+    Math.abs(render.position[1] - store[1]),
+    Math.abs(render.position[2] - store[2]),
+  );
 }
 
 test("1. app boots with the seeded project", async () => {
@@ -158,6 +177,11 @@ test("5. run simulation → object drops under gravity", async () => {
   // edit position z=5 (this also exercises save_project in the browser mock).
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect.poll(async () => (await getScene(page)).dirty).toBe(false);
+  // The exact pose Reset must restore afterwards (the box was spawned on the
+  // ground, so its Y is a spawn-time coordinate, not 0 — capture, don't assume).
+  const savedPosition = await boxPosition();
+  expect(savedPosition[0]).toBe(1.5);
+  expect(savedPosition[2]).toBe(5);
 
   const playAt = Date.now();
   await page.getByRole("button", { name: "Play", exact: true }).click();
@@ -197,19 +221,36 @@ test("5. run simulation → object drops under gravity", async () => {
   await expect(page.getByText(/ΣE/).first()).toBeVisible();
   await page.screenshot({ path: "e2e/artifacts/drop-resting.png" });
 
-  // Pause, then Reset — the saved edit position (z=5, x=1.5) comes back.
+  // While RUNNING the worker snapshot owns the pose: the rendered mesh rests on
+  // the ground while the edit store still holds the launch height z=5.
+  const runningRender = await getRenderTransform(page, boxId);
+  expect(runningRender).not.toBeNull();
+  expect(runningRender!.position[2]).toBeLessThan(1);
+  expect((await boxPosition())[2]).toBe(5);
+
+  // Pause: the editor takes the pose back. `pause()` clears the transient
+  // snapshot and `viewPose` is false, so the mesh must return to the edit pose
+  // instead of staying pinned to the simulated resting pose (R2).
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect.poll(async () => (await getTelemetry(page)).status).toBe("paused");
+  expect((await getTelemetry(page)).viewPose).toBe(false);
+  await expect.poll(renderStoreDistance, { timeout: 10000 }).toBeLessThan(1e-3);
 
+  // Reset = resetToInitial() + stop(): back to the loaded/saved edit state,
+  // idle status and an unloaded worker (no eager worker restart any more).
   await page.getByRole("button", { name: "Reset", exact: true }).click();
-  await expect.poll(async () => (await getTelemetry(page)).status).toBe("paused");
-  await expect.poll(async () => (await getTelemetry(page)).ready, { timeout: 30000 }).toBe(true);
+  await expect.poll(async () => (await getTelemetry(page)).status).toBe("idle");
+  await expect.poll(async () => (await getTelemetry(page)).ready).toBe(false);
+  expect((await getTelemetry(page)).viewPose).toBe(false);
 
   const scene = await getScene(page);
   expect(scene.project.bodies).toHaveLength(2);
   const box = scene.project.bodies.find((b: { id: string }) => b.id === boxId);
   expect(box.initial.position[0]).toBe(1.5);
   expect(box.initial.position[2]).toBe(5);
+  // The rendered mesh follows the restored edit coordinates immediately.
+  expect(await boxPosition()).toEqual(savedPosition);
+  await expect.poll(renderStoreDistance).toBeLessThan(1e-4);
 });
 
 test("6. static planes: rename + rotation inputs", async () => {

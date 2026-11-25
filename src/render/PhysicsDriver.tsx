@@ -1,6 +1,10 @@
 // render/PhysicsDriver.tsx — drives entity Object3Ds straight from the latest
-// worker snapshot inside useFrame. React never re-renders per physics frame
-// (§5.2); this component is a null-rendering subscription.
+// worker snapshot inside useFrame while the simulation shows frames
+// (`status === "running"` or `viewPose` after a single step). React never
+// re-renders per physics frame (§5.2); this component is a null-rendering
+// subscription. When the editor owns the pose (paused / idle) the snapshot must
+// NOT be re-applied, or the meshes would stay pinned to a stale simulated pose
+// instead of following edit coordinates and direct drags.
 
 import { useFrame } from "@react-three/fiber";
 import { useTelemetryStore } from "../stores/telemetryStore";
@@ -10,7 +14,9 @@ import { entityObjectRegistry } from "./registry";
 export function PhysicsDriver() {
   useFrame(() => {
     const state = useTelemetryStore.getState();
-    if (state.status === "idle") return;
+    // Snapshot pose ownership: only while the sim is showing frames. Paused
+    // (without a stepped frame) hands the meshes back to the edit state.
+    if (!(state.status === "running" || state.viewPose)) return;
     const snapshot = state.getSnapshot();
     if (!snapshot) return;
     const order = state.getBodyOrder();

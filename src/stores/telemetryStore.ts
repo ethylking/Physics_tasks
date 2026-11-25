@@ -4,6 +4,17 @@
 // Float32Arrays at 60 Hz. The LATEST snapshot lives OUTSIDE reactive state
 // (read via getSnapshot() inside useFrame) so React never re-renders per
 // physics frame — only the HUD (throttled to ~10 Hz) re-renders.
+//
+// Pose ownership: `viewPose` is true ONLY while the worker snapshot should
+// drive the rendered meshes (playing, or a single stepped frame). Pause/stop
+// hand the scene back to the editor so gizmos and edit coordinates are
+// authoritative again; pause() also drops the transient snapshot so no stale
+// pose can be read by PhysicsDriver or overlays.
+//
+// Auto-stop: any edit produces a NEW `project` object in the scene store
+// (spawn/delete/move/inspector/reset/load), so the subscription at the bottom
+// ends the sim session on that change. A later Play rebuilds the Rapier world
+// from the current edit state instead of silently reusing the old world.
 
 import { create } from "zustand";
 import type { MechProject } from "../core/types";
@@ -26,6 +37,8 @@ interface TelemetryState {
   hud: EnergyHud | null;
   error: string | null;
   warnings: string[];
+  /** True only while the worker snapshot should drive the rendered meshes. */
+  viewPose: boolean;
 
   start: (project: MechProject) => void;
   play: () => void;
@@ -101,36 +114,40 @@ export const useTelemetryStore = create<TelemetryState>()((set) => ({
   hud: null,
   error: null,
   warnings: [],
+  viewPose: false,
 
   start: (project) => {
     createWorker(project);
-    set({ status: "paused", ready: false, projectId: project.meta.id, hud: null, error: null });
+    set({ status: "paused", ready: false, projectId: project.meta.id, hud: null, error: null, viewPose: false });
   },
 
   play: () => {
     worker?.postMessage({ type: "play" });
     useSceneStore.getState().setTool(null);
-    set((s) => ({ status: "running", error: s.error }));
+    set((s) => ({ status: "running", error: s.error, viewPose: true }));
   },
 
   pause: () => {
     worker?.postMessage({ type: "pause" });
-    set({ status: "paused" });
+    // Drop the transient pose: a paused sim must not keep owning the meshes.
+    latestSnapshot = null;
+    set({ status: "paused", viewPose: false });
   },
 
   stepOnce: () => {
     worker?.postMessage({ type: "stepOnce" });
-    set({ status: "paused" });
+    // The stepped frame stays visible (snapshot kept, viewPose true).
+    set({ status: "paused", viewPose: true });
   },
 
   restart: (project) => {
     createWorker(project);
-    set({ status: "paused", ready: false, projectId: project.meta.id, hud: null });
+    set({ status: "paused", ready: false, projectId: project.meta.id, hud: null, viewPose: false });
   },
 
   stop: () => {
     stopWorker();
-    set({ status: "idle", ready: false, projectId: null, hud: null, error: null });
+    set({ status: "idle", ready: false, projectId: null, hud: null, error: null, viewPose: false });
   },
 
   clearWarnings: () => set({ warnings: [] }),
@@ -139,10 +156,16 @@ export const useTelemetryStore = create<TelemetryState>()((set) => ({
   getBodyOrder: () => bodyOrder,
 }));
 
-// Loading a different project invalidates the running simulation.
+// Every scene EDIT (spawn/delete/move/inspector/reset/load) creates a new
+// `project` object, which both invalidates a foreign project id and ends the
+// current simulation session: the editor owns the scene once more, and a later
+// Play rebuilds the Rapier world from the edited project.
 useSceneStore.subscribe((state, prev) => {
   const id = state.project?.meta.id ?? null;
   if (id !== (prev.project?.meta.id ?? null)) {
+    useTelemetryStore.getState().stop();
+  }
+  if (state.project !== prev.project && state.project && useTelemetryStore.getState().status !== "idle") {
     useTelemetryStore.getState().stop();
   }
 });

@@ -52,7 +52,11 @@ export default function Canvas3D() {
 
   const tool = useSceneStore((s) => s.tool);
   const gizmoMode = useSceneStore((s) => s.gizmoMode);
-  const simRunning = useTelemetryStore((s) => s.status === "running");
+  // EDIT controls (axis arrows, transform gizmo, spawn ghost) only exist while
+  // the EDIT state owns the rendered pose. During Play — and a single stepped
+  // frame, which keeps `viewPose` true — the worker snapshot owns the meshes, so
+  // showing edit handles would be a lie (and drags could not persist).
+  const simulated = useTelemetryStore((s) => s.status === "running" || s.viewPose);
   // Select stable store slices and resolve the entity in render — returning a
   // fresh `{ category, entity, index }` object from a Zustand v5 selector makes
   // `useSyncExternalStore` loop forever (blank app) as soon as anything is selected.
@@ -65,10 +69,10 @@ export default function Canvas3D() {
   // arrows show on every selection while translate mode is active.
   const axisArrowsId = useSceneStore((s) => s.axisArrowsId);
   const axisArrowRef = findEntityInProject(project, axisArrowsId);
-  // While the transform gizmo is visible, left-drag belongs to the selected
-  // object. Camera orbit is available on the right button only; panning moves
-  // to the middle button so a right-drag can never translate the camera.
-  const gizmoActive = selected !== null && !simRunning;
+  // While an edit control is visible, left-drag belongs to the selected object.
+  // Camera orbit is available on the right button only; panning moves to the
+  // middle button so a right-drag can never translate the camera.
+  const gizmoActive = selected !== null && !simulated;
 
   return (
     <Canvas
@@ -124,10 +128,10 @@ export default function Canvas3D() {
       <axesHelper args={[1.4]} />
       <SceneContents />
       <VectorOverlays />
-      {axisArrowRef && !simRunning && gizmoMode === "translate" && (
+      {axisArrowRef && !simulated && gizmoMode === "translate" && (
         <AxisArrows entity={axisArrowRef.entity} category={axisArrowRef.category} flat={false} />
       )}
-      {selected && !simRunning && (
+      {selected && !simulated && (
         <TransformGizmo
           entityId={selected.entity.id}
           is2d={false}
@@ -136,7 +140,7 @@ export default function Canvas3D() {
         />
       )}
       {selectedBody && <CoMMarkers body={selectedBody} />}
-      {tool && !simRunning && <SpawnController tool={tool} flat={false} />}
+      {tool && !simulated && <SpawnController tool={tool} flat={false} />}
       <PhysicsDriver />
     </Canvas>
   );

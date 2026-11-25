@@ -70,7 +70,7 @@ const TOOL_GROUPS: Array<{ label: string; tools: ToolDef[] }> = [
   },
 ];
 
-export default function SpawnPalette() {
+export default function SpawnPalette({ width }: { width: number }) {
   const tool = useSceneStore((s) => s.tool);
   const setTool = useSceneStore((s) => s.setTool);
   const running = useTelemetryStore((s) => s.status === "running");
@@ -83,7 +83,10 @@ export default function SpawnPalette() {
   };
 
   return (
-    <aside className="relative flex w-48 shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
+    <aside
+      style={{ width }}
+      className="relative flex h-full shrink-0 flex-col border-r border-zinc-800 bg-zinc-950"
+    >
       <header className="border-b border-zinc-800 px-3 py-2.5">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Spawn Palette</h2>
       </header>

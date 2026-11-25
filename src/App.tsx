@@ -7,6 +7,7 @@ import { Box, FolderOpen } from "lucide-react";
 import TopBar from "./ui/TopBar";
 import SpawnPalette from "./ui/palette/SpawnPalette";
 import Inspector from "./ui/inspector/Inspector";
+import ResizeHandle from "./ui/layout/ResizeHandle";
 import ProjectManager from "./ui/projectManager/ProjectManager";
 import EnergyHud from "./ui/hud/EnergyHud";
 import HoverTelemetry from "./ui/hud/HoverTelemetry";
@@ -16,7 +17,13 @@ import Canvas2D from "./render/Canvas2D";
 import { useProjectStore } from "./stores/projectStore";
 import { useSceneStore } from "./stores/sceneStore";
 import { useTelemetryStore } from "./stores/telemetryStore";
-import { useUiStore } from "./stores/uiStore";
+import {
+  LEFT_PANEL_MAX,
+  LEFT_PANEL_MIN,
+  RIGHT_PANEL_MAX,
+  RIGHT_PANEL_MIN,
+  useUiStore,
+} from "./stores/uiStore";
 
 export default function App() {
   const listProjects = useProjectStore((s) => s.listProjects);
@@ -26,6 +33,11 @@ export default function App() {
   const busy = useProjectStore((s) => s.busy);
   const clearError = useProjectStore((s) => s.clearError);
   const openProjectManager = useUiStore((s) => s.openProjectManager);
+  const leftPanelWidth = useUiStore((s) => s.leftPanelWidth);
+  const rightPanelWidth = useUiStore((s) => s.rightPanelWidth);
+  const setLeftPanelWidth = useUiStore((s) => s.setLeftPanelWidth);
+  const setRightPanelWidth = useUiStore((s) => s.setRightPanelWidth);
+  const resetPanelWidths = useUiStore((s) => s.resetPanelWidths);
 
   const project = useSceneStore((s) => s.project);
   const dirty = useSceneStore((s) => s.dirty);
@@ -82,8 +94,7 @@ export default function App() {
   };
   const handleReset = () => {
     useSceneStore.getState().resetToInitial();
-    const p = useSceneStore.getState().project;
-    if (p) useTelemetryStore.getState().restart(p);
+    useTelemetryStore.getState().stop();
   };
 
   const handleSave = async () => {
@@ -131,13 +142,31 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         {project ? (
           <>
-            <SpawnPalette />
+            <SpawnPalette width={leftPanelWidth} />
+            <ResizeHandle
+              direction="left"
+              value={leftPanelWidth}
+              min={LEFT_PANEL_MIN}
+              max={LEFT_PANEL_MAX}
+              label="Resize spawn palette"
+              onResize={setLeftPanelWidth}
+              onReset={resetPanelWidths}
+            />
             <main className="relative min-w-0 flex-1">
               {project.meta.mode === "2D" ? <Canvas2D /> : <Canvas3D />}
               <EnergyHud />
               <OverlayPanel />
             </main>
-            <Inspector />
+            <ResizeHandle
+              direction="right"
+              value={rightPanelWidth}
+              min={RIGHT_PANEL_MIN}
+              max={RIGHT_PANEL_MAX}
+              label="Resize inspector"
+              onResize={setRightPanelWidth}
+              onReset={resetPanelWidths}
+            />
+            <Inspector width={rightPanelWidth} />
           </>
         ) : (
           <div className="workspace-grid flex flex-1 flex-col items-center justify-center gap-3 text-zinc-700">

@@ -190,7 +190,15 @@ function BodyInspector({ body }: { body: RigidBodyEntity }) {
           labels={["rx", "ry", "rz"]}
           values={rotationDeg}
           onChange={(deg) => setInitial({ rotation: eulerDegToQuat(deg) })}
+          stepper
         />
+        <button
+          type="button"
+          onClick={() => setInitial({ rotation: [0, 0, 0, 1] })}
+          className="rounded-md border border-zinc-800 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-300"
+        >
+          Reset rotation
+        </button>
       </Section>
 
       <Section title="Initial motion">
@@ -377,7 +385,15 @@ function StaticInspector({ stat }: { stat: StaticEntity }) {
           labels={["rx", "ry", "rz"]}
           values={quatToEulerDeg(stat.rotation ?? [0, 0, 0, 1])}
           onChange={(deg) => patch({ rotation: eulerDegToQuat(deg) })}
+          stepper
         />
+        <button
+          type="button"
+          onClick={() => patch({ rotation: [0, 0, 0, 1] })}
+          className="rounded-md border border-zinc-800 px-2 py-1 text-[10px] font-medium text-zinc-500 transition-colors hover:border-zinc-600 hover:text-zinc-300"
+        >
+          Reset rotation
+        </button>
         <Hint>
           Angles are relative to the plane&apos;s initial orientation (normal {stat.plane.normal[0]},{" "}
           {stat.plane.normal[1]}, {stat.plane.normal[2]}); use the Rotate gizmo in the viewport or enter degrees here.

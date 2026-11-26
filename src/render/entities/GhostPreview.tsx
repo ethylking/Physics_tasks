@@ -3,7 +3,7 @@
 
 import { useMemo } from "react";
 import * as THREE from "three";
-import type { Vec3 } from "../../core/types";
+import type { Quat, Vec3 } from "../../core/types";
 import { PULLEY_GEOMETRY } from "../../core/defaults";
 import { createWedgeGeometry, createWedgeShapeGeometry } from "../geometry/wedge";
 
@@ -11,6 +11,8 @@ interface GhostPreviewProps {
   kind: string;
   position: Vec3;
   flat?: boolean;
+  /** World orientation of the ghost (only non-identity for body tools on a tilted surface). */
+  rotation?: Quat;
 }
 
 const GHOST_COLOR = "#22d3ee";
@@ -47,7 +49,7 @@ function ghostGeometry(kind: string, flat: boolean): JSX.Element | null {
   }
 }
 
-export function GhostPreview({ kind, position, flat = false }: GhostPreviewProps) {
+export function GhostPreview({ kind, position, flat = false, rotation = [0, 0, 0, 1] }: GhostPreviewProps) {
   const wedge3D = useMemo(
     () => (kind === "wedge" ? createWedgeGeometry() : null),
     [kind],
@@ -68,7 +70,7 @@ export function GhostPreview({ kind, position, flat = false }: GhostPreviewProps
 
   if (kind === "wedge") {
     return (
-      <group position={position}>
+      <group position={position} quaternion={rotation as unknown as [number, number, number, number]}>
         <mesh geometry={(flat ? wedge2D : wedge3D) ?? undefined} rotation={meshRotation}>
           <meshBasicMaterial color={GHOST_COLOR} transparent opacity={0.45} depthWrite={false} side={THREE.DoubleSide} />
         </mesh>
@@ -77,7 +79,7 @@ export function GhostPreview({ kind, position, flat = false }: GhostPreviewProps
   }
 
   return (
-    <group position={position}>
+    <group position={position} quaternion={rotation as unknown as [number, number, number, number]}>
       <mesh rotation={meshRotation}>
         {ghostGeometry(kind, flat)}
         <meshBasicMaterial color={GHOST_COLOR} transparent opacity={0.45} depthWrite={false} side={THREE.DoubleSide} />

@@ -210,13 +210,13 @@ export function AxisArrows({ entity, category, flat }: AxisArrowsProps) {
         key={key}
         quaternion={quats[i]!.toArray() as unknown as [number, number, number, number]}
       >
-        <mesh position={[0, outerR + SHAFT_LEN / 2, 0]} scale={scale}>
+        <mesh position={[0, outerR + SHAFT_LEN / 2, 0]} scale={scale} renderOrder={100}>
           <cylinderGeometry args={[SHAFT_R, SHAFT_R, SHAFT_LEN, 10]} />
-          <meshBasicMaterial color={color} depthTest={false} />
+          <meshBasicMaterial color={color} transparent depthTest={false} depthWrite={false} />
         </mesh>
-        <mesh position={[0, outerR + SHAFT_LEN + HEAD_LEN / 2, 0]} scale={scale}>
+        <mesh position={[0, outerR + SHAFT_LEN + HEAD_LEN / 2, 0]} scale={scale} renderOrder={100}>
           <coneGeometry args={[HEAD_R, HEAD_LEN, 12]} />
-          <meshBasicMaterial color={color} depthTest={false} />
+          <meshBasicMaterial color={color} transparent depthTest={false} depthWrite={false} />
         </mesh>
         {/* Fat invisible hit target — opacity 0 keeps it raycastable. */}
         <mesh

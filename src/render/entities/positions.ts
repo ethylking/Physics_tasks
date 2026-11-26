@@ -55,6 +55,11 @@ export function staticWorldQuat(stat: StaticEntity): Quat {
   return quatMultiply(staticBaseQuat(stat.plane.normal), stat.rotation ?? IDENTITY_QUAT);
 }
 
+/** World-space normal of a static plane (its local +Z axis in world coords). */
+export function staticWorldNormal(stat: StaticEntity): Vec3 {
+  return rotateVec3ByQuat([0, 0, 1], staticWorldQuat(stat));
+}
+
 function add3(a: Vec3, b: Vec3): Vec3 {
   return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 }

@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import type { RigidBodyEntity, Vec3 } from "../../core/types";
 import { EntityGroup, useHighlight } from "./EntityGroup";
+import { useCollisionFlag } from "../../stores/collisionStore";
 import { createWedgeGeometry, DEFAULT_WEDGE } from "../geometry/wedge";
 
 const FALLBACK_COLOR = "#38bdf8";
@@ -13,6 +14,7 @@ function num(v: unknown, fallback: number): number {
 
 export function BodyEntity({ body }: { body: RigidBodyEntity }) {
   const highlighted = useHighlight(body.id);
+  const colliding = useCollisionFlag(body.id);
   const color = body.appearance?.color ?? FALLBACK_COLOR;
   const opacity = body.appearance?.opacity ?? 1;
   const g = body.geometry;
@@ -69,11 +71,11 @@ export function BodyEntity({ body }: { body: RigidBodyEntity }) {
       <mesh castShadow receiveShadow geometry={wedgeGeometry ?? undefined} scale={scale} rotation={meshRotation}>
         {renderGeometry()}
         <meshStandardMaterial
-          color={color}
+          color={colliding ? "#dc2626" : color}
           transparent={opacity < 1}
           opacity={opacity}
-          emissive={highlighted ? "#22d3ee" : "#000000"}
-          emissiveIntensity={highlighted ? 0.35 : 0}
+          emissive={colliding ? "#dc2626" : highlighted ? "#22d3ee" : "#000000"}
+          emissiveIntensity={colliding ? 0.6 : highlighted ? 0.35 : 0}
         />
       </mesh>
     </EntityGroup>

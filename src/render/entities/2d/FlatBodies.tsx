@@ -8,6 +8,7 @@ import type { Quat, RigidBodyEntity, StaticEntity as StaticEntityType, Vec3 } fr
 import { eulerDegToQuat, quatToEulerDeg } from "../../../math/rotation";
 import { EntityGroup, useHighlight } from "../EntityGroup";
 import { useSceneStore } from "../../../stores/sceneStore";
+import { useCollisionFlag } from "../../../stores/collisionStore";
 import { createWedgeShapeGeometry, DEFAULT_WEDGE } from "../../geometry/wedge";
 
 const FALLBACK_COLOR = "#38bdf8";
@@ -56,6 +57,7 @@ function flatGeometry(body: RigidBodyEntity, isPulley: boolean): THREE.BufferGeo
 
 export function BodyEntity2D({ body }: { body: RigidBodyEntity }) {
   const highlighted = useHighlight(body.id);
+  const colliding = useCollisionFlag(body.id);
   const color = body.appearance?.color ?? FALLBACK_COLOR;
   const opacity = body.appearance?.opacity ?? 0.85;
   const isPulley = useSceneStore((s) => s.project?.ropes.some((r) => r.pulleys?.includes(body.id)) ?? false);
@@ -67,7 +69,7 @@ export function BodyEntity2D({ body }: { body: RigidBodyEntity }) {
     <EntityGroup id={body.id} position={position} rotation={body.initial.rotation}>
       <mesh geometry={geometry} rotation={[Math.PI / 2, 0, 0]}>
         <meshBasicMaterial
-          color={highlighted ? "#22d3ee" : color}
+          color={colliding ? "#dc2626" : highlighted ? "#22d3ee" : color}
           transparent
           opacity={opacity}
           side={THREE.DoubleSide}
@@ -80,6 +82,7 @@ export function BodyEntity2D({ body }: { body: RigidBodyEntity }) {
 
 export function StaticEntity2D({ stat }: { stat: StaticEntityType }) {
   const highlighted = useHighlight(stat.id);
+  const colliding = useCollisionFlag(stat.id);
   const color = stat.appearance?.color ?? "#3f3f46";
   const isGround = stat.kind === "ground";
   const extent0 = num(stat.plane.extent[0], isGround ? 20 : 10);
@@ -107,7 +110,12 @@ export function StaticEntity2D({ stat }: { stat: StaticEntityType }) {
   return (
     <EntityGroup id={stat.id} position={position} rotation={rotation}>
       <mesh geometry={geometry} rotation={[Math.PI / 2, 0, 0]}>
-        <meshBasicMaterial color={highlighted ? "#22d3ee" : color} transparent opacity={0.95} side={THREE.DoubleSide} />
+        <meshBasicMaterial
+          color={colliding ? "#dc2626" : highlighted ? "#22d3ee" : color}
+          transparent
+          opacity={colliding ? 0.5 : 0.95}
+          side={THREE.DoubleSide}
+        />
       </mesh>
     </EntityGroup>
   );

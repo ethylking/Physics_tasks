@@ -144,6 +144,8 @@ export class PhysicsEngine {
   /** Live rigid bodies, indexed like `bodyIds` (snapshot order). */
   readonly bodies: RAPIER.RigidBody[] = [];
   readonly meta: BodyMeta[] = [];
+  /** Colliders of the fixed half-space statics, paired with their entity id. */
+  readonly staticColliders: Array<{ id: string; collider: RAPIER.Collider }> = [];
 
   time = 0;
   private energy0: number | null = null;
@@ -256,7 +258,8 @@ export class PhysicsEngine {
     // plane passes through the entity's position (movable statics).
     const p = stat.position ?? [0, 0, 0];
     if (p[0] !== 0 || p[1] !== 0 || p[2] !== 0) cd.setTranslation(p[0], p[1], p[2]);
-    this.world.createCollider(cd, rb);
+    const collider = this.world.createCollider(cd, rb);
+    this.staticColliders.push({ id: stat.id, collider });
   }
 
   /** Compile Tier 1 parametric forces (external/torque/thruster). Springs are built separately. */
@@ -541,6 +544,55 @@ export class PhysicsEngine {
       .setMass(0)
       .setDensity(0);
     this.world.createCollider(cd, rb);
+  }
+
+  /**
+   * Pre-simulation initial-collision detection: step the world once (no event
+   * queue) to populate the broad phase, then scan every collider pair for a
+   * contact manifold whose penetration depth exceeds `margin`. Pairs that share
+   * an entity id (e.g. the six per-face friction slabs of one box) and pairs of
+   * two statics (fixed-vs-fixed produces no contacts) are skipped. Returns the
+   * sorted, unique ids of every offending entity.
+   */
+  findInitialCollisions(margin = 0.02): string[] {
+    // `world.contactPair` reports zero contacts until the broad phase has run at
+    // least once, so populate it with a single no-op step (bodies are expected
+    // to be fully locked + zero gravity in the detection world).
+    this.world.step();
+
+    const entries: Array<{ collider: RAPIER.Collider; entityId: string; isStatic: boolean }> = [];
+    for (let i = 0; i < this.bodies.length; i++) {
+      const rb = this.bodies[i]!;
+      const id = this.bodyIds[i]!;
+      for (let j = 0; j < rb.numColliders(); j++) {
+        entries.push({ collider: rb.collider(j), entityId: id, isStatic: false });
+      }
+    }
+    for (const entry of this.staticColliders) {
+      entries.push({ collider: entry.collider, entityId: entry.id, isStatic: true });
+    }
+
+    const flagged = new Set<string>();
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const a = entries[i]!;
+        const b = entries[j]!;
+        if (a.entityId === b.entityId) continue;
+        if (a.isStatic && b.isStatic) continue;
+        let minDist = Infinity;
+        this.world.contactPair(a.collider, b.collider, (manifold) => {
+          for (let k = 0; k < manifold.numContacts(); k++) {
+            const d = manifold.contactDist(k);
+            if (d < minDist) minDist = d;
+          }
+        });
+        if (minDist < -margin) {
+          flagged.add(a.entityId);
+          flagged.add(b.entityId);
+        }
+      }
+    }
+    return [...flagged].sort();
   }
 
   /** Advance one fixed tick. */

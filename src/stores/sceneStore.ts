@@ -68,6 +68,17 @@ export interface SpawnTool {
   label: string;
 }
 
+/**
+ * A placement surface: the world-space plane normal a spawned body is lifted
+ * along (by its half-height) and the world quaternion that tilts the body onto
+ * that plane. The renderer supplies this for 3D surface placement; in 2D it
+ * passes `null` so the legacy identity-rotation lift is preserved.
+ */
+export interface SpawnSurface {
+  normal: Vec3;
+  rotation: Quat;
+}
+
 export type TransportStatus = "stopped" | "playing" | "paused";
 export type GizmoMode = "translate" | "rotate";
 
@@ -147,7 +158,12 @@ interface SceneState {
   /** Write a live gizmo transform back into the store (2D clamps applied). */
   writeTransform: (id: string, position: Vec3, rotation: Quat) => void;
   /** Build + place a default entity from a palette tool at a surface point. */
-  spawnFromTool: (tool: SpawnTool, surfacePoint: Vec3, snap: SnapPoint | null) => string | null;
+  spawnFromTool: (
+    tool: SpawnTool,
+    surfacePoint: Vec3,
+    snap: SnapPoint | null,
+    surface?: SpawnSurface | null,
+  ) => string | null;
 }
 
 export const useSceneStore = create<SceneState>()((set, get) => ({
@@ -346,7 +362,7 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
     set({ project: { ...project, [found.category]: arr } as MechProject, dirty: true });
   },
 
-  spawnFromTool: (tool, surfacePoint, snap) => {
+  spawnFromTool: (tool, surfacePoint, snap, surface) => {
     const state = get();
     const project = state.project;
     if (!project) return null;
@@ -416,10 +432,20 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
       const body = entity as RigidBodyEntity;
       const base = snap ? snap.point : surfacePoint;
       const half = bodyHalfHeight(body);
-      body.initial = {
-        ...body.initial,
-        position: [base[0], mode === "2D" ? 0 : base[1], base[2] + half],
-      };
+      const snapIsBodyAnchor = snap ? project.bodies.some((b) => b.id === snap.ownerId) : false;
+      if (surface && !snapIsBodyAnchor) {
+        const n = surface.normal;
+        body.initial = {
+          ...body.initial,
+          position: [base[0] + n[0] * half, base[1] + n[1] * half, base[2] + n[2] * half],
+          rotation: surface.rotation,
+        };
+      } else {
+        body.initial = {
+          ...body.initial,
+          position: [base[0], mode === "2D" ? 0 : base[1], base[2] + half],
+        };
+      }
       applyModeLocks([body], mode);
     } else if (tool.category !== "statics") {
       attachConnector(entity, tool.category, surfacePoint, snap, owner, mode);

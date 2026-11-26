@@ -2,8 +2,8 @@
 // Top toolbar + spawn palette + 2D/3D viewport + properties inspector +
 // physics worker orchestration + energy HUD + project manager modal.
 
-import { useEffect, useRef } from "react";
-import { Box, FolderOpen } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Box, FolderOpen, X } from "lucide-react";
 import TopBar from "./ui/TopBar";
 import SpawnPalette from "./ui/palette/SpawnPalette";
 import Inspector from "./ui/inspector/Inspector";
@@ -15,7 +15,8 @@ import OverlayPanel from "./ui/overlays/OverlayPanel";
 import Canvas3D from "./render/Canvas3D";
 import Canvas2D from "./render/Canvas2D";
 import { useProjectStore } from "./stores/projectStore";
-import { useSceneStore } from "./stores/sceneStore";
+import { findEntityInProject, useSceneStore } from "./stores/sceneStore";
+import { useCollisionStore } from "./stores/collisionStore";
 import { useTelemetryStore } from "./stores/telemetryStore";
 import {
   LEFT_PANEL_MAX,
@@ -47,6 +48,8 @@ export default function App() {
   const simStatus = useTelemetryStore((s) => s.status);
   const simReady = useTelemetryStore((s) => s.ready);
   const simError = useTelemetryStore((s) => s.error);
+
+  const [collisionPopup, setCollisionPopup] = useState<string[] | null>(null);
 
   useEffect(() => {
     void listProjects();
@@ -85,11 +88,19 @@ export default function App() {
     return true;
   };
 
-  const handlePlay = () => {
+  const handlePlay = async () => {
+    const p = useSceneStore.getState().project;
+    if (!p) return;
+    const ids = await useCollisionStore.getState().checkNow(p);
+    if (ids.length > 0) { setCollisionPopup(ids); return; }
     if (ensureWorker()) useTelemetryStore.getState().play();
   };
   const handlePause = () => useTelemetryStore.getState().pause();
-  const handleStep = () => {
+  const handleStep = async () => {
+    const p = useSceneStore.getState().project;
+    if (!p) return;
+    const ids = await useCollisionStore.getState().checkNow(p);
+    if (ids.length > 0) { setCollisionPopup(ids); return; }
     if (ensureWorker()) useTelemetryStore.getState().stepOnce();
   };
   const handleReset = () => {
@@ -183,6 +194,55 @@ export default function App() {
 
       <ProjectManager />
       <HoverTelemetry />
+
+      {collisionPopup !== null && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Object collision"
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+        >
+          <div className="w-[26rem] rounded-xl border border-red-900/70 bg-zinc-950 p-4 shadow-2xl shadow-red-950/40">
+            <header className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-red-300">
+                <AlertTriangle className="h-4 w-4 text-red-400" />
+                Object collision
+              </h2>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setCollisionPopup(null)}
+                className="btn-icon-sm"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </header>
+            <ul className="mb-3 max-h-40 space-y-1 overflow-y-auto rounded-lg border border-red-900/40 bg-red-950/20 p-2">
+              {collisionPopup.map((id) => {
+                const name =
+                  findEntityInProject(useSceneStore.getState().project, id)?.entity.name ?? id;
+                return (
+                  <li key={id} className="truncate text-sm text-zinc-200">
+                    {name}
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="text-xs leading-relaxed text-red-300/90">
+              Objects are overlapping — fix them before starting the simulation.
+            </p>
+            <footer className="mt-4 flex justify-end">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setCollisionPopup(null)}
+              >
+                Close
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

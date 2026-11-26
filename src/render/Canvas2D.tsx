@@ -107,6 +107,7 @@ export default function Canvas2D() {
         fadeStrength={1}
         side={THREE.DoubleSide}
         infiniteGrid
+        renderOrder={-100}
       />
       <axesHelper args={[1]} />
       <SceneContents2D />

@@ -267,8 +267,10 @@ test("6. static planes: rename + rotation inputs", async () => {
   expect(scene.project.statics[1].kind).toBe("ground");
   expect(scene.project.statics[1].name.startsWith("Horizontal plane")).toBe(true);
 
-  // Numeric rotation input edits the RELATIVE quaternion directly.
-  const ryInput = page.getByLabel("Rotation (deg) ry");
+  // Numeric rotation input edits the RELATIVE quaternion directly. (The field
+  // gained +/− steppers in round 4, so match the number input by role to avoid
+  // the decrement/increment button labels.)
+  const ryInput = page.getByRole("spinbutton", { name: "Rotation (deg) ry" });
   await expect(ryInput).toBeVisible();
   await ryInput.fill("30");
   await ryInput.blur();

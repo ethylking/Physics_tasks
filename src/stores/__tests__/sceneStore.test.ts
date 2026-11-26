@@ -159,6 +159,41 @@ describe("sceneStore — entity mutations", () => {
     expect(pulley?.initial.position[2]).toBeCloseTo(0.04, 6);
   });
 
+  it("spawnFromTool with surface {normal:[0,0,1], identity rotation} lifts +Z by half-height", () => {
+    const project = createDefaultProject("Surface up", "3D");
+    useSceneStore.getState().loadFromProject(project);
+
+    const id = useSceneStore.getState().spawnFromTool(
+      { category: "bodies", kind: "box", label: "Box" },
+      [1, 2, 0],
+      null,
+      { normal: [0, 0, 1], rotation: [0, 0, 0, 1] },
+    );
+    const box = useSceneStore.getState().project?.bodies.find((b) => b.id === id);
+    // Box H = 1 → half 0.5, lifted along the +Z plane normal exactly like the
+    // legacy surface lift; rotation stays identity.
+    expect(box?.initial.position).toEqual([1, 2, 0.5]);
+    expect(box?.initial.rotation).toEqual([0, 0, 0, 1]);
+  });
+
+  it("spawnFromTool with a rotated surface lifts along the normal and stores the quaternion", () => {
+    const project = createDefaultProject("Surface rotated", "3D");
+    useSceneStore.getState().loadFromProject(project);
+    const rotation: Quat = [0, 0, 1, 0]; // 180° about Z
+
+    const id = useSceneStore.getState().spawnFromTool(
+      { category: "bodies", kind: "sphere", label: "Sphere" },
+      [0, 0, 0],
+      null,
+      { normal: [1, 0, 0], rotation },
+    );
+    const sphere = useSceneStore.getState().project?.bodies.find((b) => b.id === id);
+    // Sphere R = 0.5 → half 0.5, shifted along +X (the plane normal) and tilted
+    // to the stored world quaternion.
+    expect(sphere?.initial.position).toEqual([0.5, 0, 0]);
+    expect(sphere?.initial.rotation).toEqual([0, 0, 1, 0]);
+  });
+
   it("spawnFromTool places statics at the placement point (not the origin)", () => {
     const project = createDefaultProject("Static place", "3D");
     useSceneStore.getState().loadFromProject(project);

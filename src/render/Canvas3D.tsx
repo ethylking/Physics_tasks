@@ -124,6 +124,7 @@ export default function Canvas3D() {
         fadeDistance={70}
         fadeStrength={1}
         infiniteGrid
+        renderOrder={-100}
       />
       <axesHelper args={[1.4]} />
       <SceneContents />

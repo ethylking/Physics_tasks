@@ -298,6 +298,118 @@ verified with builds, physics unit tests (vitest) and Playwright UI tests.
   · vite build clean (3316 modules) · Playwright **21/21** (2.0 m); QA ran the full suite
   twice more (21/21 both). P1 closed; node_modules repaired via clean npm ci (319 pkgs).
 
+## Round 4 (user request, 2026-11-25 night)
+
+- [x] **S1** — Spawn new objects bound to the plane the mouse hovers over (nearest-to-camera
+  "top rendered" plane), not just the ground plane; ghost preview AND the created object
+  inherit that plane's orientation (objects on an inclined plane are tilted the same way).
+- [x] **S2** — Pre-simulation initial-collision detection: objects that initially interpenetrate
+  (plane cuts a box, box inside a box, a plane sitting above an object) are highlighted
+  TOXIC RED while not simulating; Play/Step is blocked with a notation popup listing the
+  colliding objects. This also removes the "plane over object instantly pulls it high like
+  the ground plane" symptom (the run is refused before it can happen).
+- [x] **S3** — Fix the ground grid rendering over edit controls (axis coordinate arrows /
+  transform gizmo).
+- [x] **S4** — User-friendly rotation controls for ALL objects, especially planes (numeric
+  steppers, reset-rotation action, rotate-gizmo snapping).
+
+### Round-4 decisions & contracts (authoritative)
+
+**Coord system**: Z-up, X–Y ground; statics are infinite half-spaces anchored at
+`stat.position` with world quaternion `staticWorldQuat(stat) = staticBaseQuat(normal) × rotation`.
+
+1. **Spawn-on-plane (`SpawnController` + `GhostPreview` + `sceneStore.spawnFromTool`)**:
+   - `sceneStore.spawnFromTool` gains an optional 4th arg
+     `surface?: { normal: Vec3; rotation: Quat } | null` (type `SpawnSurface`, exported from
+     sceneStore). When set and the tool is a body AND the snap is not to a BODY anchor, the
+     body is lifted along `surface.normal` by `bodyHalfHeight(body)` and its
+     `initial.rotation = surface.rotation`. Otherwise current behavior (lift +Z, identity
+     rotation) is preserved. 2D keeps `surface = null` (current X–Z behavior).
+   - `SpawnController` (3D only) raycasts the cursor against the FINITE rendered rectangle of
+     every static (world normal + basis derived from `staticWorldQuat`, center
+     `stat.position ?? origin`, half-extents `extent/2`), picks the nearest positive hit
+     ("top rendered plane"), and passes `{ normal, rotation: staticWorldQuat(stat) }`. Fallback
+     when no rectangle is hit: horizontal plane normal +Z, rotation identity (ghost still
+     follows the cursor). `GhostPreview` gains a `rotation?: Quat` prop applied as the group
+     quaternion (default identity).
+2. **Collision detection (`src/physics/collisionCheck.ts`, Physics-Math)**: main-thread,
+   lazy `getRapier()` (dynamic `import("@dimforge/rapier3d-compat")` + `await init()`), cached
+   per project object reference. `findInitialCollisions(project): Promise<string[]>` clones the
+   project (gravity [0,0,0], every body fully locked translate+rotate, velocity/angvel 0, wedge
+   forced `dynamic:true`), builds a `PhysicsEngine`, steps the raw world once, and returns the
+   ids of bodies+statics that interpenetrate beyond `COLLISION_MARGIN = 0.02`.
+   - `PhysicsEngine` gains `staticColliders: {id, collider}[]` (captured in `buildStatic`) and
+     `findInitialCollisions(margin): string[]` — enumerate collider→entity pairs (skip same
+     entity, skip static–static), `world.contactPair(a, b, cb)` read `manifold.contactDist(k)`
+     (min over contacts), flag when `min < -margin`. **Verified**: contactDist is NEGATIVE when
+     penetrating (resting=0, box 0.25 into ground=−0.25, floor z=2 over box top 1=−2.0);
+     `contactPair` needs one `world.step()` first; fixed–fixed pairs yield no contacts so all
+     bodies are dynamic+locked for the check.
+3. **Collision store (`src/stores/collisionStore.ts`, Core-Rust)**:
+   `collidingIds: string[]`, `checking: boolean`, `checkNow(project): Promise<string[]>`,
+   `requestRefresh(project)` (debounced ~200 ms), `clear()`, plus `useCollisionFlag(id)` hook.
+   Subscribes to `sceneStore.project` reference changes → `requestRefresh`; null → `clear`.
+4. **Play/Step block (`App.tsx`)**: `handlePlay`/`handleStep` become async; before starting,
+   `await checkNow(project)`; if non-empty, open a collision popup (list of entity names) and
+   return without starting. Popup is dismissible.
+5. **Toxic-red highlight (Render-3D)**: `BodyEntity` / `StaticEntity` / `BodyEntity2D` /
+   `StaticEntity2D` read `useCollisionFlag(id)`; when true override color to `#dc2626`
+   (bodies: emissive `#dc2626`; statics: red with lower opacity so it stays see-through).
+   Collision red wins over selection highlight.
+6. **Grid z-order (Render-3D)**: drei `<Grid>` is a TRANSPARENT shader rendered in the
+   transparent pass (after opaque controls), so it blends over them. Fix: `<Grid renderOrder={-100}>`
+   (forwarded to its mesh), and make the edit controls render later in the same pass —
+   AxisArrows shaft/cone materials → `transparent`, `depthTest:false`, `depthWrite:false`,
+   `renderOrder={100}`; TransformControls helper materials traversed to the same flags.
+7. **Rotation controls (Render-3D)**: `Vec3Field`/`NumberField` gain ± step buttons; Inspector
+   Body/Static Transform sections gain a "Reset rotation" action (identity quaternion); the
+   Rotate gizmo snaps to 15° (Shift = fine). Rotate gizmo already covers bodies AND statics.
+
+### Round-4 execution log
+
+- 2026-11-25 — Lead: inspected ARCHITECTURE/SPEC/AGENTS + full `src/` (sceneStore, engine,
+  SpawnController, GhostPreview, AxisArrows, TransformGizmo, Canvas2D/3D, Inspector, fields,
+  types, defaults, telemetryStore, PhysicsDriver, snapping). Verified Rapier collision facts
+  first-hand with a throwaway Node probe against the installed rapier3d-compat 0.14 (see
+  decision 2; probe removed after use). Contracts above written; subagents launching.
+- 2026-11-25 — physics-agent DONE: `engine.ts` `staticColliders` + `findInitialCollisions(margin)`,
+  `collisionCheck.ts` (`getRapier`, `COLLISION_MARGIN=0.02`, `findInitialCollisions` cached per
+  project object, `prepareProject` zero-gravity/fully-locked/wedge-dynamic), `collisionCheck.test.ts`
+  (9 tests). tsc 0; `vitest run src/physics` 34/34. (Reported a pre-existing jsdom/
+  `http-proxy-agent` node_modules corruption in `src/math` load; see below.)
+- 2026-11-25 — core-agent DONE: `sceneStore` `SpawnSurface` + surface-aware `spawnFromTool`;
+  `collisionStore` (`checkNow`/`requestRefresh`/`clear`/`useCollisionFlag` + scene-store
+  subscription); `App.tsx` async Play/Step collision guard + dismissible `role="dialog"` popup;
+  store tests. tsc 0; `vitest run src/stores` 44/44. Restored the 3 corrupt
+  agent-base/http(s)-proxy-agent `dist/index.js` (jsdom transitive deps).
+- 2026-11-25 — Lead integration review of wave 1: read collisionCheck/collisionStore/engine
+  `findInitialCollisions`/App popup. Hardened `collisionStore.checkNow` to filter detector ids
+  down to real scene entities (bodies + statics) so generated rope chain-segment ids can never
+  leak into the highlight/popup; updated `collisionStore.test.ts` to use real entity ids + added
+  a filtering test (6/6, true vitest exit 0). First-hand `vitest run src/math` = 29/29 under
+  jsdom (node_modules healthy). render-agent (wave 2) launched.
+- 2026-11-25 — render-agent DONE: `positions.staticWorldNormal`, new `planeRaycast.ts`
+  (`raycastStaticSurface` finite-rectangle nearest hit), `SpawnController` surface tracking +
+  tilted ghost lift/rotation + `surface` arg on placement, `GhostPreview.rotation` prop,
+  toxic-red `#dc2626` in BodyEntity/StaticEntity/FlatBodies (2D+3D), `<Grid renderOrder={-100}>`
+  in both canvases, AxisArrows/TransformControls pushed to renderOrder 100 + transparent/
+  depthTest:false/depthWrite:false, TransformGizmo rotate snap (15°/1° Shift) via
+  `setRotationSnap`, `fields.tsx` `stepper` on NumberField/Vec3Field, Inspector "Reset rotation"
+  buttons + steppers on both Rotation fields. tsc 0; `vitest run src/render src/ui` 32/32.
+- 2026-11-25 — qa-agent DONE — ALL GATES GREEN: tsc 0 errors; vitest **152/152** (16 files);
+  vite build clean (3321 modules; only non-fatal chunk-size warnings on physics.worker/rapier);
+  Playwright **26/26** (21 existing + new `e2e/tests/round4.spec.ts` 5 tests: spawn-on-plane
+  orientation, plane-over-object block, box-in-box block, rotation reset/stepper, grid-vs-arrows
+  screenshot). Test-only changes: `main.tsx` dev hook gained `collision: useCollisionStore`;
+  `app.spec.ts` test-6 locator narrowed to `getByRole("spinbutton", {name:"Rotation (deg) ry"})`
+  (the new steppers made the old `getByLabel` ambiguous). Artifact
+  `e2e/artifacts/grid-vs-arrows.png`.
+- 2026-11-25 — Lead final verification (first-hand): reviewed wave-2 diffs (planeRaycast,
+  SpawnController, TransformGizmo traversal/snap); pixel-probed `grid-vs-arrows.png` with Pillow
+  (axis-arrow colors present: red 27 / green 53 / blue 623 px → arrows render visibly over the
+  grid, S3 confirmed). All four user tasks (S1–S4) closed; node_modules healthy (jsdom deps
+  repaired).
+
 ## Blocked / Needs Input
 
 (none)

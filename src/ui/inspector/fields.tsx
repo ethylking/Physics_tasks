@@ -11,26 +11,48 @@ interface NumberFieldProps {
   step?: number;
   min?: number;
   max?: number;
+  stepper?: boolean;
 }
 
-export function NumberField({ label, value, onChange, step = 0.1, min, max }: NumberFieldProps) {
+export function NumberField({ label, value, onChange, step = 0.1, min, max, stepper = false }: NumberFieldProps) {
   const display = Number.isFinite(value) ? Number(value.toFixed(6)) : 0;
+  const clamp = (n: number) => {
+    if (min !== undefined && n < min) return min;
+    if (max !== undefined && n > max) return max;
+    return n;
+  };
+  const adjust = (dir: 1 | -1) => onChange(clamp(display + dir * step));
+  const input = (
+    <input
+      type="number"
+      step={step}
+      min={min}
+      max={max}
+      aria-label={label}
+      value={display}
+      onChange={(e) => {
+        const n = e.target.valueAsNumber;
+        if (Number.isFinite(n)) onChange(n);
+      }}
+      className={`input-dark font-mono text-xs${stepper ? " min-w-0 flex-1" : ""}`}
+    />
+  );
   return (
     <label className="block">
       <span className="field-label">{label}</span>
-      <input
-        type="number"
-        step={step}
-        min={min}
-        max={max}
-        aria-label={label}
-        value={display}
-        onChange={(e) => {
-          const n = e.target.valueAsNumber;
-          if (Number.isFinite(n)) onChange(n);
-        }}
-        className="input-dark font-mono text-xs"
-      />
+      {stepper ? (
+        <div className="flex items-center gap-1">
+          <button type="button" aria-label={`${label} decrement`} onClick={() => adjust(-1)} className="btn-icon-sm shrink-0">
+            −
+          </button>
+          {input}
+          <button type="button" aria-label={`${label} increment`} onClick={() => adjust(1)} className="btn-icon-sm shrink-0">
+            +
+          </button>
+        </div>
+      ) : (
+        input
+      )}
     </label>
   );
 }
@@ -41,30 +63,71 @@ interface Vec3FieldProps {
   values: Vec3;
   onChange: (value: Vec3) => void;
   step?: number;
+  min?: number;
+  max?: number;
+  stepper?: boolean;
 }
 
-export function Vec3Field({ groupLabel, labels, values, onChange, step = 0.1 }: Vec3FieldProps) {
+export function Vec3Field({ groupLabel, labels, values, onChange, step = 0.1, min, max, stepper = false }: Vec3FieldProps) {
+  const clamp = (n: number) => {
+    if (min !== undefined && n < min) return min;
+    if (max !== undefined && n > max) return max;
+    return n;
+  };
+  const adjust = (i: number, dir: 1 | -1) => {
+    const current = Number.isFinite(values[i] ?? 0) ? (values[i] ?? 0) : 0;
+    const next = [...values] as Vec3;
+    next[i] = clamp(current + dir * step);
+    onChange(next);
+  };
   return (
     <div>
       <span className="field-label">{groupLabel}</span>
       <div className="grid grid-cols-3 gap-1.5">
-        {labels.map((l, i) => (
-          <input
-            key={l}
-            type="number"
-            step={step}
-            aria-label={`${groupLabel} ${l}`}
-            value={Number.isFinite(values[i] ?? 0) ? Number((values[i] ?? 0).toFixed(6)) : 0}
-            onChange={(e) => {
-              const n = e.target.valueAsNumber;
-              if (!Number.isFinite(n)) return;
-              const next = [...values] as Vec3;
-              next[i] = n;
-              onChange(next);
-            }}
-            className="input-dark font-mono text-xs"
-          />
-        ))}
+        {labels.map((l, i) => {
+          const display = Number.isFinite(values[i] ?? 0) ? Number((values[i] ?? 0).toFixed(6)) : 0;
+          const input = (
+            <input
+              key={l}
+              type="number"
+              step={step}
+              min={min}
+              max={max}
+              aria-label={`${groupLabel} ${l}`}
+              value={display}
+              onChange={(e) => {
+                const n = e.target.valueAsNumber;
+                if (!Number.isFinite(n)) return;
+                const next = [...values] as Vec3;
+                next[i] = n;
+                onChange(next);
+              }}
+              className={`input-dark font-mono text-xs${stepper ? " min-w-0 flex-1" : ""}`}
+            />
+          );
+          if (!stepper) return input;
+          return (
+            <div key={l} className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label={`${groupLabel} ${l} decrement`}
+                onClick={() => adjust(i, -1)}
+                className="btn-icon-sm shrink-0"
+              >
+                −
+              </button>
+              {input}
+              <button
+                type="button"
+                aria-label={`${groupLabel} ${l} increment`}
+                onClick={() => adjust(i, 1)}
+                className="btn-icon-sm shrink-0"
+              >
+                +
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

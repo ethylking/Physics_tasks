@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import * as THREE from "three";
 import type { StaticEntity as StaticEntityType, Vec3 } from "../../core/types";
 import { EntityGroup, useHighlight } from "./EntityGroup";
+import { useCollisionFlag } from "../../stores/collisionStore";
 import { staticWorldQuat } from "./positions";
 
 const ORIGIN: Vec3 = [0, 0, 0];
@@ -15,6 +16,7 @@ function num(v: unknown, fallback: number): number {
 
 export function StaticEntity({ stat }: { stat: StaticEntityType }) {
   const highlighted = useHighlight(stat.id);
+  const colliding = useCollisionFlag(stat.id);
   const color = stat.appearance?.color ?? "#3f3f46";
   const opacity = stat.appearance?.opacity ?? 0.85;
 
@@ -31,12 +33,12 @@ export function StaticEntity({ stat }: { stat: StaticEntityType }) {
       <mesh receiveShadow>
         <planeGeometry args={[w, h]} />
         <meshStandardMaterial
-          color={highlighted ? "#22d3ee" : color}
+          color={colliding ? "#dc2626" : highlighted ? "#22d3ee" : color}
           transparent
-          // A selected ground must stay see-through (it is a huge plane and
-          // would otherwise cover the whole scene with the highlight tint).
-          opacity={highlighted ? (isGround ? 0.1 : 0.9) : opacity}
-          depthWrite={!(highlighted && isGround)}
+          // A colliding static must stay see-through (it is a huge plane and
+          // would otherwise cover the whole scene with the collision tint).
+          opacity={colliding ? 0.45 : highlighted ? (isGround ? 0.1 : 0.9) : opacity}
+          depthWrite={colliding ? false : !(highlighted && isGround)}
           // The ground is exactly coplanar with the grid at z = 0 — push its
           // fragments slightly behind so the grid wins instead of z-fighting.
           polygonOffset={isGround}

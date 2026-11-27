@@ -102,3 +102,30 @@ export function dist3(a: Vec3, b: Vec3): number {
   const dz = a[2] - b[2];
   return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
+
+/**
+ * Quaternion rotating +Z onto `normal` (the base orientation of a static plane,
+ * whose local +Z axis is the plane normal). `normal` is normalized here; the
+ * degenerate n ≈ −Z case rotates 180° about +X and n ≈ +Z returns the identity.
+ * A zero vector falls back to the identity (a horizontal X–Y plane).
+ */
+export function staticBaseQuat(normal: Vec3): Quat {
+  const [nx, ny, nz] = normal;
+  const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+  if (!(len > 1e-12)) return [0, 0, 0, 1];
+  const x = nx / len;
+  const y = ny / len;
+  const z = nz / len;
+  const dotZ = z; // dot(n, +Z)
+  if (dotZ > 0.9999) return [0, 0, 0, 1];
+  if (dotZ < -0.9999) return [1, 0, 0, 0]; // 180° about +X
+  // axis = normalize(cross(Z, n)) = normalize(-y, x, 0)
+  const ax = -y;
+  const ay = x;
+  const axisLen = Math.sqrt(ax * ax + ay * ay);
+  const ux = ax / axisLen;
+  const uy = ay / axisLen;
+  const angle = Math.acos(Math.min(1, Math.max(-1, dotZ)));
+  const s = Math.sin(angle / 2);
+  return [ux * s, uy * s, 0, Math.cos(angle / 2)];
+}

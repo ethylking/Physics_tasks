@@ -11,8 +11,9 @@
 
 import RAPIER from "@dimforge/rapier3d-compat";
 import type { MechProject, ProjectMode, Quat, RigidBodyEntity, Vec3 } from "../core/types";
+import { isSolidStatic } from "../core/defaults";
 import { computeBodyMassProperties } from "../math/inertia";
-import { localToWorld, quatInvert, rotateVec3ByQuat } from "../math/rotation";
+import { localToWorld, quatInvert, quatMultiply, rotateVec3ByQuat, staticBaseQuat } from "../math/rotation";
 import { emitExprWarning } from "../math/expr";
 import {
   compileForceEntity,
@@ -35,6 +36,20 @@ import {
 import { SNAPSHOT_INDEX, SNAPSHOT_HEADER, SNAPSHOT_FLOATS_PER_BODY, snapshotLength, snapshotRopesOffset } from "./snapshot";
 
 const CCD_CONTACT_TOLERANCE = 0.005; // §2.4 — |v|Δt > 5·contactTolerance → force CCD
+
+/**
+ * Thickness (m) of a NON-solid static plane — a thin, two-sided surface (§3.2
+ * `statics[].solid`). Its `+normal` face is flush with the rendered plane, so a
+ * body resting on the visible side sits exactly on it; the slab only occupies
+ * this thin band, which leaves the space on both sides of the plane free.
+ */
+export const STATIC_SURFACE_THICKNESS = 0.04;
+
+/** Non-degenerate plane extent (m) for a surface slab; mirrors the renderer fallbacks. */
+function surfaceExtent(extent: [number, number] | undefined, i: 0 | 1, fallback: number): number {
+  const v = extent?.[i];
+  return typeof v === "number" && Number.isFinite(v) && v > 1e-4 ? v : fallback;
+}
 
 export interface EnergyMetrics {
   Ek: number;
@@ -113,13 +128,18 @@ function wedgeVertices(W: number, H: number, D: number, thetaDeg: number): Float
 }
 
 /**
- * Effective half-space normal of a static entity: the stored `plane.normal`
- * (normalized) rotated by the entity's RELATIVE `rotation` — render parity,
- * the mesh is drawn with world quat = baseQuat(normal) × rotation, so the
- * collider must tilt with it (identity = the base orientation). In 2D the
- * normal is projected into the vertical X–Z plane: a rotated wall becomes an
- * inclined line, and a pure +Y normal (which would degenerate to zero after
- * projection) falls back to +X.
+ * Normal obtained by rotating the stored `plane.normal` by the entity's
+ * RELATIVE `rotation` in the WORLD frame (`rotation · normal`).
+ *
+ * This is the normal driving the 2D projection: the rotated normal is projected
+ * into the vertical X–Z plane (a rotated wall becomes an inclined line, and a
+ * pure +Y normal, which would degenerate to zero, falls back to +X). The 2D
+ * collider is then built in the base frame of this projected normal.
+ *
+ * The 3D collider does NOT use this composition: its frame is the rendered
+ * world quaternion (`baseQuat(normal) · rotation`, see `buildStatic`), which
+ * equals `rotation · normal` only when the rotations commute (a spin about the
+ * plane's own normal does not).
  */
 export function effectiveStaticNormal(
   stat: MechProject["statics"][number],
@@ -144,7 +164,7 @@ export class PhysicsEngine {
   /** Live rigid bodies, indexed like `bodyIds` (snapshot order). */
   readonly bodies: RAPIER.RigidBody[] = [];
   readonly meta: BodyMeta[] = [];
-  /** Colliders of the fixed half-space statics, paired with their entity id. */
+  /** Colliders of the fixed static planes, paired with their entity id. */
   readonly staticColliders: Array<{ id: string; collider: RAPIER.Collider }> = [];
 
   time = 0;
@@ -212,17 +232,22 @@ export class PhysicsEngine {
       }
     }
 
+    // Surface statics are only a few centimetres thick, so a fast body could
+    // tunnel through one (a half-space can never be missed). Enable CCD on the
+    // moving bodies whenever the scene contains a thin surface plane.
+    const hasSurfaceStatics = project.statics.some((s) => !isSolidStatic(s));
+
     for (const stat of project.statics) {
       this.buildStatic(stat, rapier);
     }
     for (const b of project.bodies) {
-      this.buildBody(b, rapier, minDynamicMass, project.meta.mode, jointConstrained);
+      this.buildBody(b, rapier, minDynamicMass, project.meta.mode, jointConstrained, hasSurfaceStatics);
     }
     this.syncBodyIndex();
     this.buildJoints(project, rapier);
     this.buildForces(project.forces);
     this.buildSprings(project);
-    this.buildRopes(project, rapier, maxDynamicMass);
+    this.buildRopes(project, rapier, maxDynamicMass, hasSurfaceStatics);
     this.energy0 = this.computeEnergies().Etotal;
   }
 
@@ -243,21 +268,78 @@ export class PhysicsEngine {
     this.energy0 = null;
   }
 
+  /**
+   * Build one static plane.
+   *
+   * The collider FRAME is the single source of truth for the plane's placement:
+   * 3D uses exactly the rendered world quaternion (`baseQuat(normal) ·
+   * rotation`), 2D the base orientation of the projected normal. Both the solid
+   * half-space normal and the thin slab's flush offset are derived from that
+   * frame (`local +Z`), so they stay consistent for ANY relative rotation — a
+   * spin about the plane's own normal does not commute with the base
+   * orientation, so composing the normal separately would tilt the collider
+   * away from the drawn rectangle.
+   *
+   * `solid` planes (the project floor, `isSolidStatic`) are infinite HALF-SPACES:
+   * everything on the `−normal` side is filled, so no body can ever exist under
+   * it — that is the solid bottom of the project.
+   *
+   * Every other plane (walls, ceilings, platforms, palette-added planes) is a
+   * THIN, TWO-SIDED slab covering only `plane.extent`: it blocks bodies from
+   * crossing the surface but leaves BOTH sides free, so objects may live under
+   * it. The slab's `+normal` face is flush with the rendered plane, so a body
+   * resting on the visible side sits exactly on the plane, and a body under it
+   * only has to clear the few centimetres of slab thickness.
+   */
   private buildStatic(stat: MechProject["statics"][number], rapier: typeof RAPIER): void {
-    const desc = rapier.RigidBodyDesc.fixed();
-    const rb = this.world.createRigidBody(desc);
-    // Relative-rotation semantics (render parity): the effective half-space
-    // normal is the stored plane normal rotated by `stat.rotation`, so the
-    // collider tilts exactly like the rendered mesh (world quat =
-    // baseQuat(normal) × rotation). 2D projects the normal into the X–Z
-    // plane so a rotated wall reads as an inclined line.
-    const n = effectiveStaticNormal(stat, this.mode);
-    const cd = new rapier.ColliderDesc(new rapier.HalfSpace({ x: n[0], y: n[1], z: n[2] }));
-    cd.setFriction(stat.friction).setRestitution(stat.restitution);
-    // The half-space is infinite through the origin; offset its collider so the
-    // plane passes through the entity's position (movable statics).
+    const rb = this.world.createRigidBody(rapier.RigidBodyDesc.fixed());
     const p = stat.position ?? [0, 0, 0];
-    if (p[0] !== 0 || p[1] !== 0 || p[2] !== 0) cd.setTranslation(p[0], p[1], p[2]);
+
+    // Relative-rotation semantics (render parity): the collider is oriented like
+    // the rendered mesh. 2D projects the normal into the X–Z plane first, so a
+    // rotated wall reads as an inclined line.
+    const q: Quat =
+      this.mode === "2D"
+        ? staticBaseQuat(effectiveStaticNormal(stat, this.mode))
+        : quatMultiply(staticBaseQuat(stat.plane.normal), stat.rotation ?? [0, 0, 0, 1]);
+    // The plane normal the collider actually has (its local +Z in world space).
+    let n = rotateVec3ByQuat([0, 0, 1], q);
+    const nLen = Math.hypot(n[0], n[1], n[2]);
+    if (!(nLen > 1e-9)) n = [0, 0, 1]; // degenerate normal → horizontal plane
+    else if (Math.abs(nLen - 1) > 1e-9) n = [n[0] / nLen, n[1] / nLen, n[2] / nLen];
+
+    if (isSolidStatic(stat)) {
+      // Solid floor: infinite half-space, solid on the −normal side.
+      const cd = new rapier.ColliderDesc(new rapier.HalfSpace({ x: n[0], y: n[1], z: n[2] }));
+      cd.setFriction(stat.friction).setRestitution(stat.restitution);
+      // The half-space is infinite through the origin; offset its collider so
+      // the plane passes through the entity's position (movable statics).
+      if (p[0] !== 0 || p[1] !== 0 || p[2] !== 0) cd.setTranslation(p[0], p[1], p[2]);
+      const collider = this.world.createCollider(cd, rb);
+      this.staticColliders.push({ id: stat.id, collider });
+      return;
+    }
+
+    // Two-sided surface slab. Its local +Z is the plane normal, local +X/+Y are
+    // the plane's `extent` axes (same frame as the rendered `planeGeometry`).
+    // 3D matches the rendered rectangle exactly (extent[0] along local +X,
+    // extent[1] along local +Y). 2D renders statics as lines in the X–Z
+    // workspace and takes the visible length from a different extent per kind
+    // (`FlatBodies`): ground → extent[0] horizontal, wall → extent[1] vertical.
+    // Swap for 2D walls so the physical line matches the drawn line.
+    const fallback = stat.kind === "ground" ? 20 : 10;
+    const e0 = surfaceExtent(stat.plane.extent, 0, fallback);
+    const e1 = surfaceExtent(stat.plane.extent, 1, fallback);
+    const wall2d = this.mode === "2D" && stat.kind === "wall";
+    const alongU = wall2d ? e1 : e0;
+    const alongV = wall2d ? e0 : e1;
+    const halfT = STATIC_SURFACE_THICKNESS / 2;
+    const cd = rapier.ColliderDesc.cuboid(alongU / 2, alongV / 2, halfT)
+      .setFriction(stat.friction)
+      .setRestitution(stat.restitution)
+      // Shift the slab to the −normal side so its top face lands on the plane.
+      .setTranslation(p[0] - n[0] * halfT, p[1] - n[1] * halfT, p[2] - n[2] * halfT)
+      .setRotation({ x: q[0], y: q[1], z: q[2], w: q[3] });
     const collider = this.world.createCollider(cd, rb);
     this.staticColliders.push({ id: stat.id, collider });
   }
@@ -310,7 +392,12 @@ export class PhysicsEngine {
   }
 
   /** Milestone 5 — pulleys & ropes (massless + chain). */
-  private buildRopes(project: MechProject, rapier: typeof RAPIER, maxDynamicMass: number): void {
+  private buildRopes(
+    project: MechProject,
+    rapier: typeof RAPIER,
+    maxDynamicMass: number,
+    surfaceStatics: boolean,
+  ): void {
     const bodyIndexById = new Map<string, number>();
     project.bodies.forEach((b, i) => bodyIndexById.set(b.id, i));
     const appendSegmentBody = (
@@ -344,6 +431,7 @@ export class PhysicsEngine {
       worldAnchorBody: this.worldAnchorBody,
       jointRuntimes: this.jointRuntimes,
       maxDynamicMass,
+      surfaceStatics,
       appendSegmentBody,
     };
     for (const rope of project.ropes) {
@@ -387,6 +475,7 @@ export class PhysicsEngine {
     minDynamicMass: number,
     mode: "2D" | "3D",
     jointConstrained?: Set<string>,
+    surfaceStatics?: boolean,
   ): void {
     const mp = computeBodyMassProperties(body);
     const isFixed = body.kind === "wedge" && body.geometry.wedge && !body.geometry.wedge.dynamic;
@@ -405,11 +494,12 @@ export class PhysicsEngine {
     desc.linearDamping = body.linearDamping;
     desc.angularDamping = body.angularDamping;
 
-    // §2.4 — CCD: requested, small bodies, fast bodies, or high mass ratios.
+    // §2.4 — CCD: requested, small bodies, fast bodies, high mass ratios, or
+    // any thin surface static in the scene (a 4 cm slab can be tunnelled).
     const minDim = bodyMinDimension(body);
     const speed = Math.hypot(v[0], v[1], v[2]);
     const autoCcd = minDim < 0.1 || speed * this.dt > 5 * CCD_CONTACT_TOLERANCE;
-    desc.ccdEnabled = body.ccd || autoCcd;
+    desc.ccdEnabled = body.ccd || autoCcd || (!isFixed && surfaceStatics === true);
 
     // §2.4 — clamp extreme mass ratios.
     if (!isFixed && minDynamicMass > 0 && mass > 1e4 * minDynamicMass) {

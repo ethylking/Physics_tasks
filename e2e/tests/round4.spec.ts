@@ -1,7 +1,8 @@
 // e2e/tests/round4.spec.ts — round-4 feature coverage:
 //
 //   S1  spawn-on-plane inherits the inclined plane's orientation + normal lift
-//   S2  plane-over-object initial collision is detected and blocks Play
+//   S2  a plane ABOVE an object is a thin two-sided surface: the object stays
+//       under it, no collision is reported, and Play runs (regression fix)
 //   S3  box-in-box initial collision is detected, highlighted, and blocks Play
 //   S4  grid renders under the axis arrows (screenshot artifact, zero errors)
 //   S5  inspector rotation controls (reset + ry stepper)
@@ -19,7 +20,7 @@
 
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { getScene, getTelemetry, projectWorld } from "./helpers";
+import { getBodyOrder, getScene, getSnapshot, getTelemetry, projectWorld } from "./helpers";
 
 type Vec3 = [number, number, number];
 type Quat = [number, number, number, number];
@@ -160,12 +161,15 @@ test("1. spawn-on-plane inherits the inclined plane's orientation and normal lif
 });
 
 // -----------------------------------------------------------------------------
-// S2 — plane-over-object detected + Play blocked
+// S2 (updated) — a plane above an object is a THIN SURFACE, not a half-space:
+// objects may exist under it, no collision is reported, Play is allowed and the
+// object is never ejected above the plane. (Regression: statics used to be
+// infinite half-spaces, so nothing could live under an added plane.)
 // -----------------------------------------------------------------------------
 
-test("2. plane-over-object collision blocks Play and shows the dialog", async ({ page }) => {
-  // Spawn a new Horizontal plane away from the seeded box, then lift it to z=2:
-  // its half-space (solid z < 2) swallows "Box 1" at z ∈ [0, 1].
+test("2. a plane above an object does not collide: the object stays under it and Play runs", async ({ page }) => {
+  // Spawn a new Horizontal plane off to the side, then lift it to z = 2 so the
+  // seeded "Box 1" (z ∈ [0, 1]) lives UNDER it.
   await page.getByRole("button", { name: "Horizontal plane", exact: true }).click();
   await expect.poll(async () => (await getScene(page))?.tool?.kind).toBe("ground");
 
@@ -175,7 +179,8 @@ test("2. plane-over-object collision blocks Play and shows the dialog", async ({
 
   const scene = await getScene(page);
   const boxId = scene.project.bodies[0].id as string;
-  const planeId = scene.project.statics[1].id as string;
+  // A palette-placed plane is serialized as a thin surface (not a solid floor).
+  expect(scene.project.statics[1].solid).toBe(false);
 
   const zInput = page.getByRole("spinbutton", { name: "Position z" });
   await zInput.fill("2");
@@ -184,33 +189,13 @@ test("2. plane-over-object collision blocks Play and shows the dialog", async ({
     .poll(async () => (await getScene(page)).project?.statics?.[1]?.position?.[2])
     .toBe(2);
 
-  // Wait for the debounced check to settle on the box+plane pair.
-  await expectCollisionSettled(
-    page,
-    (c) => c.collidingIds.includes(boxId) && c.collidingIds.includes(planeId),
-  );
-
-  // Play must be blocked: the dialog appears and the transport stays idle.
-  await page.getByRole("button", { name: "Play", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Object collision" });
-  await expect(dialog).toBeVisible({ timeout: 10000 });
-  expect((await getTelemetry(page)).status).not.toBe("running");
-  await expect(dialog).toContainText("Box 1");
-  await expect(dialog).toContainText("Horizontal plane");
-
-  // Close, fix the overlap (plane back to z=0), and wait for the set to clear.
-  await dialog.getByRole("button", { name: "Close" }).last().click();
-  await expect(dialog).toBeHidden();
-
-  await zInput.fill("0");
-  await zInput.blur();
-  await expect
-    .poll(async () => (await getScene(page)).project?.statics?.[1]?.position?.[2])
-    .toBe(0);
+  // The pre-simulation detector must NOT flag the box/plane pair: an object may
+  // exist under a plane (the old half-space swallowed it and blocked Play).
   await expectCollisionSettled(page, (c) => c.collidingIds.length === 0);
 
-  // Play now starts (worker boots on first successful Play), then Pause.
+  // Play is allowed — no collision dialog — and the worker boots.
   await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Object collision" })).toHaveCount(0);
   await expect
     .poll(
       async () => {
@@ -220,8 +205,36 @@ test("2. plane-over-object collision blocks Play and shows the dialog", async ({
       { timeout: 30000 },
     )
     .toBe(true);
+
+  // Let ≥ 1 s of simulated time run, then check the box stayed UNDER the plane:
+  // it rests on the ground (z ≈ 0.5), never jumps above z = 2.
+  const order = await getBodyOrder(page);
+  const boxIndex = order.indexOf(boxId);
+  expect(boxIndex).toBeGreaterThanOrEqual(0);
+  await expect
+    .poll(async () => {
+      const snap = await getSnapshot(page);
+      return snap.length > 8 + boxIndex * 25 ? snap[0]! : 0; // snapshot sim time
+    }, { timeout: 20000 })
+    .toBeGreaterThan(1);
+
+  const snap = await getSnapshot(page);
+  const boxZ = snap[8 + boxIndex * 25 + 2]!; // POS z
+  expect(boxZ).toBeLessThan(1); // never pushed up through the plane
+  expect(boxZ).toBeGreaterThan(0.4); // resting on the ground at H/2
+
   await page.getByRole("button", { name: "Pause", exact: true }).click();
   await expect.poll(async () => (await getTelemetry(page)).status).toBe("paused");
+
+  // Prove the detector was live (so the empty collision set above was a real
+  // "no collision", not a check that never ran): lower the plane onto the box —
+  // a surface slicing a body IS reported.
+  await zInput.fill("0.5");
+  await zInput.blur();
+  await expect
+    .poll(async () => (await getScene(page)).project?.statics?.[1]?.position?.[2])
+    .toBe(0.5);
+  await expectCollisionSettled(page, (c) => c.collidingIds.includes(boxId));
 });
 
 // -----------------------------------------------------------------------------

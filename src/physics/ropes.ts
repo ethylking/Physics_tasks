@@ -323,6 +323,12 @@ export interface RopeBuildContext {
   jointRuntimes: JointRuntime[];
   /** Heaviest dynamic project body — chain segments clamp above massRatio⁻¹·it. */
   maxDynamicMass: number;
+  /**
+   * The scene contains thin surface statics (4 cm slabs). Chain segments are
+   * dynamic and can whip fast, so they get CCD like every other moving body —
+   * unlike a half-space, a thin slab can be tunnelled through.
+   */
+  surfaceStatics?: boolean;
   /** Append a chain segment body (engine keeps it in snapshot order). */
   appendSegmentBody: (body: RAPIER.RigidBody, id: string, meta: RopeBodyMeta) => number;
 }
@@ -791,6 +797,7 @@ function buildChain(rope: RopeEntity, ctx: RopeBuildContext, rt: RopeRuntime): v
       );
     desc.linearDamping = 0.5;
     desc.angularDamping = 0.2;
+    if (ctx.surfaceStatics) desc.ccdEnabled = true;
     if (ctx.mode === "2D") {
       // Y-translation lock only: the revolute links (and the joint solver,
       // which cannot drive a free axis against locked X/Z rotations) keep the

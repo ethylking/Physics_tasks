@@ -24,7 +24,7 @@ function boxAt(position: [number, number, number]) {
   return box;
 }
 
-describe("collisionCheck — body vs ground half-space", () => {
+describe("collisionCheck — body vs static planes", () => {
   it("a box resting exactly on the ground is NOT flagged", async () => {
     const project = blankProject();
     project.statics.push(createDefaultStatic("ground"));
@@ -44,9 +44,10 @@ describe("collisionCheck — body vs ground half-space", () => {
     expect(ids).toContain(box.id);
   });
 
-  it("a half-space plane positioned above a box still flags the box", async () => {
+  it("a SOLID plane positioned above a box still flags the box", async () => {
     const project = blankProject();
-    // Horizontal plane through z = 2, solid below it — the box underneath is inside.
+    // Solid horizontal plane through z = 2 (a floor), solid below it — the box
+    // underneath is inside the half-space.
     project.statics.push(createDefaultStatic("ground", { position: [0, 0, 2] }));
     const box = boxAt([0, 0, 0]); // top z = 0.5 < 2
     project.bodies.push(box);
@@ -55,7 +56,7 @@ describe("collisionCheck — body vs ground half-space", () => {
     expect(ids).toContain(box.id);
   });
 
-  it("a vertical wall half-space cutting through a box flags the box", async () => {
+  it("a vertical wall SURFACE cutting through a box flags the box", async () => {
     const project = blankProject();
     project.statics.push(
       createDefaultStatic("wall", {

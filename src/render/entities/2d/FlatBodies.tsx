@@ -94,9 +94,10 @@ export function StaticEntity2D({ stat }: { stat: StaticEntityType }) {
     return new THREE.PlaneGeometry(0.08, extent1);
   }, [isGround, extent0, extent1]);
 
-  const position: Vec3 = isGround
-    ? [0, 0, stat.position?.[2] ?? 0]
-    : [stat.position?.[0] ?? 0, 0, stat.position?.[2] ?? 0];
+  // Statics are drawn around their collider centre: the collider is a finite
+  // slab centred on `position`, so the 2D line must follow `position.x` too (a
+  // horizontal plane moved along X used to be drawn at the origin).
+  const position: Vec3 = [stat.position?.[0] ?? 0, 0, stat.position?.[2] ?? 0];
 
   // A 2D static rotates only about Y (out-of-plane), like 2D bodies: take the
   // Y (pitch) component of the stored relative rotation so the wall line is

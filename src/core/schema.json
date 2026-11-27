@@ -126,6 +126,10 @@
         },
         "position": { "$ref": "#/definitions/vec3" },
         "rotation": { "$ref": "#/definitions/quat" },
+        "solid": {
+          "type": "boolean",
+          "description": "true = infinite solid half-space (nothing can be under it, e.g. the project floor); false = thin two-sided surface with `plane.extent`, so bodies may exist on either side. Absent (older files) uses the legacy rule — ground = solid, wall = surface — and is baked into the project on load."
+        },
         "friction": { "type": "number" },
         "restitution": { "type": "number" },
         "ccd": { "type": "boolean" },

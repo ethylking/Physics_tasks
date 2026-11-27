@@ -1,5 +1,6 @@
 // render/entities/StaticEntity.tsx — walls & ground in the 3D viewport.
-// Statics are infinite planes anchored at `stat.position` (default: origin).
+// Statics are planes anchored at `stat.position` (default: origin): a thin
+// two-sided surface, or — when `solid` — an infinite half-space floor.
 
 import { useMemo } from "react";
 import * as THREE from "three";

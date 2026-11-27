@@ -170,6 +170,16 @@ export interface StaticEntity {
   name: string;
   kind: "wall" | "ground";
   plane: { normal: Vec3; extent: [number, number] };
+  /**
+   * `true` = SOLID half-space: the `−normal` side is filled, so nothing can be
+   * under it (this is the project floor / "solid bottom"). `false` = a thin,
+   * two-sided SURFACE of `plane.extent`: it blocks bodies crossing it but leaves
+   * both sides free, so other objects may live under it. When ABSENT (files
+   * written before the field existed) the legacy rule applies — `kind ===
+   * "ground"` is solid, `"wall"` is a surface — and the value is baked into the
+   * project on load (`applyStaticSolidityDefaults`).
+   */
+  solid?: boolean;
   /** World point the plane passes through (defaults to the origin). */
   position?: Vec3;
   /** Relative rotation applied AFTER the base orientation from `plane.normal` (identity = initial direction). */

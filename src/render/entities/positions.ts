@@ -17,38 +17,18 @@ import type {
   StaticEntity,
   Vec3,
 } from "../../core/types";
-import { localToWorld, quatInvert, quatMultiply, rotateVec3ByQuat } from "../../math/rotation";
+import { localToWorld, quatInvert, quatMultiply, rotateVec3ByQuat, staticBaseQuat } from "../../math/rotation";
 import type { EntityCategory } from "../../stores/sceneStore";
+
+// `staticBaseQuat` lives in `math/rotation.ts` (pure math) so the physics engine
+// builds the exact same plane frame as the rendered mesh; re-export it here for
+// the render/store call sites that import it from this module.
+export { staticBaseQuat };
 
 export const ORIGIN: Vec3 = [0, 0, 0];
 
 /** Identity quaternion. */
 export const IDENTITY_QUAT: Quat = [0, 0, 0, 1];
-
-/**
- * Quaternion rotating +Z onto `normal` (the plane's base orientation).
- * `normal` is assumed ≈ unit or is normalized here; the degenerate
- * n ≈ −Z case rotates 180° about +X, and n ≈ +Z returns the identity.
- */
-export function staticBaseQuat(normal: Vec3): Quat {
-  const [nx, ny, nz] = normal;
-  const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
-  const x = nx / len;
-  const y = ny / len;
-  const z = nz / len;
-  const dotZ = z; // dot(n, +Z)
-  if (dotZ > 0.9999) return [0, 0, 0, 1];
-  if (dotZ < -0.9999) return [1, 0, 0, 0]; // 180° about +X
-  // axis = normalize(cross(Z, n)) = normalize(-y, x, 0)
-  const ax = -y;
-  const ay = x;
-  const axisLen = Math.sqrt(ax * ax + ay * ay);
-  const ux = ax / axisLen;
-  const uy = ay / axisLen;
-  const angle = Math.acos(Math.min(1, Math.max(-1, dotZ)));
-  const s = Math.sin(angle / 2);
-  return [ux * s, uy * s, 0, Math.cos(angle / 2)];
-}
 
 /** World quaternion of a static plane mesh: baseQuat(normal) × rotation. */
 export function staticWorldQuat(stat: StaticEntity): Quat {

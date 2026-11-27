@@ -197,6 +197,8 @@ describe("sceneStore — entity mutations", () => {
   it("spawnFromTool places statics at the placement point (not the origin)", () => {
     const project = createDefaultProject("Static place", "3D");
     useSceneStore.getState().loadFromProject(project);
+    // The seeded floor is the project's SOLID bottom: nothing may be under it.
+    expect(project.statics[0]?.solid).toBe(true);
 
     const id = useSceneStore.getState().spawnFromTool(
       { category: "statics", kind: "wall", label: "Wall" },
@@ -205,6 +207,8 @@ describe("sceneStore — entity mutations", () => {
     );
     const wall = useSceneStore.getState().project?.statics.find((s) => s.id === id);
     expect(wall?.position).toEqual([3.2, 4.1, 0]);
+    // Palette planes are thin, two-sided SURFACES — objects may be under them.
+    expect(wall?.solid).toBe(false);
 
     // Ground follows the click point too (its height = placement z).
     const groundId = useSceneStore.getState().spawnFromTool(
@@ -214,6 +218,8 @@ describe("sceneStore — entity mutations", () => {
     );
     const ground = useSceneStore.getState().project?.statics.find((s) => s.id === groundId);
     expect(ground?.position).toEqual([1, 2, 0.25]);
+    // Even a palette-placed HORIZONTAL plane is a surface, not a second floor.
+    expect(ground?.solid).toBe(false);
   });
 
   it("spawnFromTool gives 2D walls an in-plane normal while 3D walls stay vertical", () => {
@@ -238,6 +244,26 @@ describe("sceneStore — entity mutations", () => {
     const wall3d = useSceneStore.getState().project?.statics.find((s) => s.id === wall3dId);
     // 3D walls keep the new vertical default (normal ±Y, spanning X–Z).
     expect(wall3d?.plane.normal).toEqual([0, 1, 0]);
+  });
+
+  it("loadFromProject bakes `solid` for legacy statics: the first ground stays the floor", () => {
+    const legacy = createDefaultProject("Legacy statics", "3D", { seedScene: false });
+    const floor = createDefaultStatic("ground");
+    const extraPlane = createDefaultStatic("ground", { position: [0, 0, 2] });
+    const wall = createDefaultStatic("wall");
+    delete floor.solid;
+    delete extraPlane.solid;
+    delete wall.solid;
+    legacy.statics.push(floor, extraPlane, wall);
+
+    useSceneStore.getState().loadFromProject(legacy);
+    const statics = useSceneStore.getState().project?.statics ?? [];
+    // Old files: the seeded floor is the FIRST ground → solid bottom; a plane
+    // added later is a thin surface (objects may live under it); walls too.
+    expect(statics.map((s) => s.solid)).toEqual([true, false, false]);
+    // The migration also lands in the Reset snapshot.
+    useSceneStore.getState().resetToInitial();
+    expect(useSceneStore.getState().project?.statics.map((s) => s.solid)).toEqual([true, false, false]);
   });
 
   it("writeTransform stores a static's position and base-relative rotation", () => {

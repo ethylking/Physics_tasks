@@ -9,6 +9,7 @@ import { MousePointer2, RefreshCcw, Trash2 } from "lucide-react";
 import { useSceneStore, findEntityInProject } from "../../stores/sceneStore";
 import { useTelemetryStore } from "../../stores/telemetryStore";
 import { eulerDegToQuat, quatToEulerDeg } from "../../math/rotation";
+import { isSolidStatic } from "../../core/defaults";
 import type {
   ForceEntity,
   JointEntity,
@@ -418,6 +419,17 @@ function StaticInspector({ stat }: { stat: StaticEntity }) {
           values={[stat.plane.extent[0], stat.plane.extent[1], 0]}
           onChange={(v) => patch({ plane: { ...stat.plane, extent: [v[0], v[1]] } })}
         />
+        <CheckboxField
+          label="Solid (infinite half-space)"
+          checked={isSolidStatic(stat)}
+          onChange={(v) => patch({ solid: v })}
+        />
+        <Hint>
+          Planes are thin, two-sided surfaces (a 4 cm collider slab whose visible face is
+          flush with its +normal side) — objects may sit on or under either one. A solid
+          plane is an infinite half-space filled below its normal, so nothing can be under
+          it (the seeded ground is one).
+        </Hint>
       </Section>
       <Section title="Appearance">
         <ColorField
@@ -426,7 +438,7 @@ function StaticInspector({ stat }: { stat: StaticEntity }) {
           onChange={(v) => patch({ appearance: { color: v, opacity: stat.appearance?.opacity ?? 0.85 } })}
         />
       </Section>
-      <Hint>Statics are infinite planes; drag the move gizmo in the viewport to reposition them (their plane offset is stored in `position`).</Hint>
+      <Hint>Statics can be repositioned and rotated with the viewport gizmos (the plane offset is stored in `position`).</Hint>
     </>
   );
 }

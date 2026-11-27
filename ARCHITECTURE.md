@@ -109,6 +109,14 @@ Pipeline: (1) analytic `I_geo` at geometric center → (2) shift to actual CoM �
 ## 2.6 Collisions, Restitution & Impulse Recording (Tier 2 for recording)
 - Rapier handles response; expose `restitution` per collider/face. For impulse recording, subscribe to `CollisionEvent`/`ContactForceEvent` and push `(J, normal, point, Δv)` to a ring buffer. Perfectly-inelastic `e=0`; optional weld-on-impact (ballistic pendulum) via post-contact callback.
 
+## 2.7 Statics — solid floors vs. two-sided surfaces
+A static plane is one of two physical objects, selected by `solid`:
+- **Solid floor (`solid: true`)** — Rapier `HalfSpace(n̂)`: the `−normal` side is filled, so no body can exist under the plane. This is the project's solid bottom (the seeded ground); its plane passes through `position`.
+- **Surface (`solid: false`)** — a thin, two-sided `cuboid` slab of `plane.extent` (`STATIC_SURFACE_THICKNESS = 0.04 m`) and shifted half a thickness to the `−normal` side so the slab's `+normal` face is **flush with the visible plane**. Bodies rest on it, may exist on **both** sides, and the slab still blocks crossing from either side. Walls, ceilings, platforms and every palette-placed plane are surfaces.
+- **One collider frame.** The collider is oriented by the *rendered* world quaternion (`baseQuat(normal) · rotation`; 2D: the base orientation of the projected normal) and **both** the half-space normal and the flush offset are derived from that frame's local `+Z`. Composing the normal separately would diverge from the drawing whenever the relative rotation does not commute with the base orientation (e.g. a spin about the plane's own normal). In 2D the slab's in-plane length follows the drawn line (`FlatBodies`): `extent[1]` for a wall's vertical line, `extent[0]` for a ground's horizontal line.
+- **Legacy rule** — when `solid` is absent: `kind === "ground"` ⇒ solid, `"wall"` ⇒ surface; on load the value is baked into the project (`applyStaticSolidityDefaults`: the FIRST ground is the seeded floor, any later ground plane becomes a surface).
+- **CCD:** because a 4 cm slab can be tunnelled (a half-space cannot), every moving body — including chain-rope segments — gets CCD whenever the scene contains a surface static.
+
 ---
 
 # 3. COMPLETE JSON SCHEMA (`.mech.json`)
@@ -181,6 +189,10 @@ interface RigidBodyEntity {
 interface StaticEntity {
   id: UUID; name: string; kind: "wall"|"ground";
   plane: { normal:Vec3; extent:[number,number] };
+  /** true = infinite SOLID half-space (floor, nothing under it); false = thin two-sided surface of `extent`. */
+  solid?: boolean;
+  position?: Vec3;
+  rotation?: Quat;
   friction: number; restitution: number; ccd: boolean;
   appearance?: { color:string; opacity:number };
 }

@@ -95,4 +95,19 @@ describe("Inspector", () => {
     expect(body.name).toBe("Crate");
     expect(body.mass.value).toBe(12);
   });
+
+  it("the static 'Solid (infinite half-space)' toggle promotes and demotes a plane", () => {
+    const floor = useSceneStore.getState().project!.statics[0]!;
+    useSceneStore.getState().setSelected(floor.id);
+    render(<Inspector width={288} />);
+
+    // The seeded ground is the project's solid bottom.
+    const toggle = screen.getByLabelText("Solid (infinite half-space)");
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(useSceneStore.getState().project!.statics[0]!.solid).toBe(false);
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    expect(useSceneStore.getState().project!.statics[0]!.solid).toBe(true);
+  });
 });

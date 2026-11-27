@@ -1,6 +1,6 @@
 // @vitest-environment node
 // physics/__tests__/staticsRotation.test.ts — static-plane relative rotation:
-// the half-space collider tilts with the entity's `rotation` so physics
+// the slab/half-space collider tilts with the entity's `rotation` so physics
 // matches the rendered mesh (world quat = baseQuat(normal) × rotation).
 // Covers: default normal contracts, an inclined-plane slide with a = g·sinθ
 // (μ = 0), the 2D X–Z projection, and unchanged default-ground behavior.
@@ -140,9 +140,10 @@ describe("statics — a rotated wall acts as an inclined plane (3D)", () => {
     expect(Math.abs(dot3(sub3(samples[6]!.p, S), n) - 0.5)).toBeLessThan(0.05);
     expect(Math.hypot(samples[6]!.w[0], samples[6]!.w[1], samples[6]!.w[2])).toBeLessThan(0.05);
 
-    // Control: identity rotation keeps the wall vertical (the y = 0 plane,
-    // solid on the −Y side). A box in front of it at [0, 1, 1] has nothing
-    // to rest on and just free-falls — x and y stay put, z(t) = z₀ − ½gt².
+    // Control: identity rotation keeps the wall vertical (the y = 0 plane, a
+    // thin two-sided surface after Round 5). A box in front of it at [0, 1, 1]
+    // has nothing to rest on (the wall is thin, not a solid side) and just
+    // free-falls — x and y stay put, z(t) = z₀ − ½gt².
     // Proves the rotation is what created the incline.
     const control = new PhysicsEngine(tiltedWallProject([0, 0, 0, 1], [0, 1, 1], [0, 0, 0, 1]), RAPIER);
     for (let i = 0; i < 60; i++) control.step();
@@ -207,7 +208,7 @@ describe("statics — 2D projects the rotated normal into the X–Z plane", () =
     for (let i = 0; i < 240; i++) engine.step(); // 2 s — bounce settles
     const t = engine.bodies[0]!.translation();
     expect(Math.abs(t.y)).toBeLessThan(1e-9); // 2D stays on Y = 0
-    expect(t.z).toBeGreaterThan(0.4); // resting ON the projected half-space
+    expect(t.z).toBeGreaterThan(0.4); // resting ON the projected surface
     expect(t.z).toBeLessThan(0.55); // at its half height 0.5
   });
 });

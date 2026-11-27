@@ -308,6 +308,8 @@ verified with builds, physics unit tests (vitest) and Playwright UI tests.
   TOXIC RED while not simulating; Play/Step is blocked with a notation popup listing the
   colliding objects. This also removes the "plane over object instantly pulls it high like
   the ground plane" symptom (the run is refused before it can happen).
+  **Superseded by Round 5:** a plane *above* an object is no longer an interpenetration —
+  planes are thin surfaces, so objects may live under them. Slicing a body is still flagged.
 - [x] **S3** — Fix the ground grid rendering over edit controls (axis coordinate arrows /
   transform gizmo).
 - [x] **S4** — User-friendly rotation controls for ALL objects, especially planes (numeric
@@ -315,8 +317,10 @@ verified with builds, physics unit tests (vitest) and Playwright UI tests.
 
 ### Round-4 decisions & contracts (authoritative)
 
-**Coord system**: Z-up, X–Y ground; statics are infinite half-spaces anchored at
-`stat.position` with world quaternion `staticWorldQuat(stat) = staticBaseQuat(normal) × rotation`.
+**Coord system**: Z-up, X–Y ground; statics are planes anchored at `stat.position` with
+world quaternion `staticWorldQuat(stat) = staticBaseQuat(normal) × rotation`.
+**Superseded by Round 5:** statics are no longer all infinite half-spaces — only a `solid`
+plane is; every other plane is a thin, two-sided surface (see Round 5).
 
 1. **Spawn-on-plane (`SpawnController` + `GhostPreview` + `sceneStore.spawnFromTool`)**:
    - `sceneStore.spawnFromTool` gains an optional 4th arg
@@ -409,6 +413,109 @@ verified with builds, physics unit tests (vitest) and Playwright UI tests.
   (axis-arrow colors present: red 27 / green 53 / blue 623 px → arrows render visibly over the
   grid, S3 confirmed). All four user tasks (S1–S4) closed; node_modules healthy (jsdom deps
   repaired).
+
+## Round 5 (user request, 2026-11-26 night) — planes are surfaces, not solid volumes
+
+- [x] **U1** — "Objects cannot exist under additional plane objects. Ground plane is
+  ok — it is the solid bottom of the project, but other planes must allow other
+  objects to be under them." Root cause: `engine.buildStatic` built EVERY static as
+  a Rapier infinite `HalfSpace`, i.e. the whole `−normal` side was solid. Anything
+  placed under a wall / horizontal plane was ejected above it and the pre-simulation
+  detector flagged it red (round-4 S2 even encoded that as intended behaviour).
+
+### Round-5 decisions & contracts (authoritative)
+
+1. **Schema — `StaticEntity.solid?: boolean`** (`core/types.ts`, `core/schema.json`,
+   `core/defaults.ts` `isSolidStatic`):
+   - `true` → infinite SOLID half-space (`new ColliderDesc(new HalfSpace(n))`), the
+     `−normal` side filled: the project's solid bottom. Nothing can live under it.
+   - `false` → thin, two-sided SURFACE of `plane.extent`:
+     `ColliderDesc.cuboid(e1/2, e2/2, STATIC_SURFACE_THICKNESS/2)` in the rendered
+     mesh frame, shifted `−normal` by half the thickness so the slab's `+normal`
+     face is **flush with the visible plane** (resting bodies sit exactly on the
+     plane — no 2 cm float). Bodies may exist on BOTH sides; the slab still blocks
+     crossing from either side.
+   - **One collider frame (review fix S1).** The collider is oriented by the rendered
+     world quaternion (`staticBaseQuat(normal) · rotation`; 2D:
+     `staticBaseQuat(effectiveStaticNormal)`), and BOTH the half-space normal and the
+     flush offset are taken from that frame's local `+Z`. Composing the normal
+     separately (`effectiveStaticNormal` = `rotation · normal`, world-frame) diverges
+     whenever the relative rotation does not commute with the base orientation (e.g.
+     a spin about the plane's own normal, `rz`): the slab's `+face` was up to 2 cm off
+     the drawn plane and a SOLID plane's half-space was 90° wrong for `rz = 90°`.
+     `effectiveStaticNormal` now only drives the 2D projection (its docstring says so).
+   - **Legacy migration (review fix S2).** Absent `solid` keeps the legacy rule
+     (`ground` ⇒ solid, `wall` ⇒ surface); `applyStaticSolidityDefaults` bakes it into
+     the project on adopt (`sceneStore.loadFromProject`), with the FIRST ground taken
+     as the seeded floor and any later ground plane as a surface — so old scenes that
+     added a horizontal plane over an object are fixed too.
+2. **Defaults** — `createDefaultStatic("ground")` is solid (the seeded project
+   floor); `sceneStore.spawnFromTool` forces `solid: false` on EVERY palette plane,
+   including "Horizontal plane", so a newly added plane never becomes a second
+   floor. The Inspector gains a **"Solid (infinite half-space)"** checkbox that
+   promotes/demotes any plane.
+3. **Thin-slab robustness** — `STATIC_SURFACE_THICKNESS = 0.04 m` (exported from
+   `physics/engine.ts`). A fast body could tunnel a 4 cm slab where a half-space was
+   unmissable, so `buildBody` now sets
+   `desc.ccdEnabled = body.ccd || autoCcd || (!isFixed && surfaceStatics)` — CCD on
+   every moving project body whenever the scene contains at least one surface static;
+   **chain-rope segments** (created in `ropes.ts`) get the same flag through
+   `RopeBuildContext.surfaceStatics` (review fix S4).
+4. **Pre-simulation detector** — unchanged code path (it builds a `PhysicsEngine`):
+   a plane ABOVE a body is no longer reported (the slab is not touching it), while
+   a plane slicing a body, or a SOLID floor above one, is still reported. The e2e
+   test also proves the detector is live by lowering the plane onto the box.
+5. **Shared plane frame** — `staticBaseQuat` moved from
+   `render/entities/positions.ts` to `math/rotation.ts` (pure math) so physics and
+   render orient statics identically; `positions.ts` re-exports it for existing
+   call sites (`sceneStore`, `EntityGroup`, `staticWorldQuat`, tests).
+6. **Round-4 S2 superseded** — the e2e scenario "plane-over-object collision blocks
+   Play" now asserts the opposite: a palette plane above a box reports no collision,
+   Play runs, and the box stays under the plane (`e2e/tests/round4.spec.ts` test 2).
+7. **Renderer parity follow-ups** — (a) `surfaceExtent` falls back to 20 for a ground
+   and 10 for a wall, mirroring the 3D/2D renderers (review fix S5); (b) 2D statics
+   are now drawn around `position.x` (`FlatBodies`), matching the finite collider
+   centre when a horizontal plane is moved along X.
+   **Known pre-existing limitation (not addressed):** the 2D renderer draws a static
+   as a vertical/horizontal line and takes its rotation from the yaw component only,
+   while physics projects the full 3D normal into X–Z. That divergence predates
+   Round 5 (round-4 contract) and is unchanged.
+
+### Round-5 execution log
+
+- 2026-11-26 — Lead: read `README.md`, `ARCHITECTURE.md`, `AGENTS.md.txt`,
+  `TASK_PROGRESS.md` + the statics paths (`engine.buildStatic`,
+  `collisionCheck`, `sceneStore.spawnFromTool`, `StaticEntity`,
+  `StaticInspector`, `staticsRotation`/`collisionCheck` tests, round-4 e2e).
+  Implemented the `solid` contract, the slab collider, palette/Inspector behaviour
+  and the shared `staticBaseQuat`; added `src/physics/__tests__/staticsSurfaces.test.ts`
+  and store-test assertions for `solid: false` on spawned planes. 2D follow-up: a 2D
+  wall's slab takes its in-plane length from `extent[1]` (the drawn vertical line in
+  `FlatBodies`) and a 2D ground's from `extent[0]`, so the physical line matches the
+  visible one when the user edits extents.
+  Gates: `tsc --noEmit` 0 errors; `vitest run` **165/165** (17 files).
+- 2026-11-26 — Lead verification: `vite build` clean (3321 modules; only the usual
+  non-fatal chunk-size warning); Playwright **26/26** (2.5 min) — including the
+  rewritten round-4 test 2, which now spawns a Horizontal plane at z = 2 over the
+  seeded box, asserts it serializes `solid: false`, gets no collision report, Play
+  runs, and after > 1 s of simulated time the box's snapshot `POS z` is still on the
+  ground (0.4 < z < 1 — never above the plane). Artifacts regenerated
+  (`spawn-arrows.png`, `drop-resting.png`, `statics-rotated.png`).
+- 2026-11-26 — Independent review (read-only subagent) of the whole diff: it
+  confirmed the approach and the 2D extent mapping, and found the non-commuting
+  rotation defect (S1), the legacy-file migration gap (S2), a too-loose flush test
+  tolerance (S3, 0.03 > half the slab thickness), missing CCD for chain-rope
+  segments (S4) and the ground/wall extent fallback mismatch (S5). All five were
+  fixed; tests added: collider-frame assertions for a non-commuting `rz = 90°`
+  rotation (thin + solid), a legacy-migration test, a tightened (< 0.01) flush
+  assertion, a 2D extent test and an Inspector toggle test. Re-verified after the
+  fixes: `tsc` 0, `vitest run` **170/170** (17 files), `vite build` clean, Playwright
+  **26/26** (the round-4 test additionally proves the collision detector fires by
+  slicing the box with the plane at z = 0.5).
+- 2026-11-26 — Lead final review: re-read `engine.buildStatic`, the migration, the
+  Inspector/`FlatBodies` edits and the new tests; confirmed each review finding has a
+  regression test that fails without its fix (S1: frame tests; S2: migration test;
+  S3: tightened tolerance; S4: context flag; S5: fallback).
 
 ## Blocked / Needs Input
 

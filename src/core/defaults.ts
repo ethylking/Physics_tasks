@@ -109,6 +109,10 @@ export function createDefaultStatic(kind: "wall" | "ground", partial: Partial<St
     id: newId(),
     name: kind === "ground" ? "Horizontal plane" : "Wall",
     kind,
+    // The plain `ground` factory produces the project floor: a SOLID half-space
+    // (its −normal side is filled). The spawn palette explicitly clears this so
+    // every user-placed plane is a thin two-sided surface instead.
+    solid: kind === "ground",
     plane:
       kind === "ground"
         ? { normal: [0, 0, 1], extent: [20, 20] }
@@ -119,6 +123,45 @@ export function createDefaultStatic(kind: "wall" | "ground", partial: Partial<St
     appearance: { color: "#3f3f46", opacity: 1 },
     ...partial,
   };
+}
+
+/**
+ * Effective solidity of a static plane. The schema field `solid` is authoritative
+ * when present; files written before it existed keep the legacy rule
+ * (ground = solid floor, wall = thin surface).
+ */
+export function isSolidStatic(stat: Pick<StaticEntity, "kind" | "solid">): boolean {
+  return stat.solid ?? stat.kind === "ground";
+}
+
+/**
+ * Schema migration for projects saved before `solid` existed: bake the legacy
+ * rule into the data on load so the physics contract is explicit (and editable
+ * in the inspector).
+ *
+ * Walls were always thin surfaces. Among ground planes, the FIRST one in the
+ * file is the floor that was seeded with the project (the palette appends later
+ * planes), so only that one becomes a solid half-space; an additional horizontal
+ * plane becomes a thin surface — exactly the reported "objects cannot exist
+ * under a plane" bug for old scenes. Projects that already carry explicit
+ * values are returned unchanged (same object).
+ */
+export function applyStaticSolidityDefaults(project: MechProject): MechProject {
+  let seenGround = false;
+  let changed = false;
+  const statics = project.statics.map((stat) => {
+    if (stat.kind === "ground") {
+      const isFirstGround = !seenGround;
+      seenGround = true;
+      if (stat.solid !== undefined) return stat;
+      changed = true;
+      return { ...stat, solid: isFirstGround };
+    }
+    if (stat.solid !== undefined) return stat;
+    changed = true;
+    return { ...stat, solid: false };
+  });
+  return changed ? { ...project, statics } : project;
 }
 
 export function createDefaultJoint<K extends Tier1JointKind>(

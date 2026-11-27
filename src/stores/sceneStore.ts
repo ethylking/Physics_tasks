@@ -28,6 +28,7 @@ import type {
 } from "../core/types";
 import {
   applyModeLocks,
+  applyStaticSolidityDefaults,
   bodyHalfHeight,
   createDefaultBody,
   createDefaultForce,
@@ -179,11 +180,14 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
   gravityYBefore2D: 0,
 
   loadFromProject: (project) => {
+    // Legacy files predate `statics[].solid`: bake the explicit value on adopt so
+    // the physics contract never has to guess (see applyStaticSolidityDefaults).
+    const adopted = applyStaticSolidityDefaults(project);
     const prevSelected = get().selectedId;
-    const stillExists = findEntityInProject(project, prevSelected);
+    const stillExists = findEntityInProject(adopted, prevSelected);
     set({
-      project,
-      initialSnapshot: cloneProject(project),
+      project: adopted,
+      initialSnapshot: cloneProject(adopted),
       dirty: false,
       selectedId: stillExists ? prevSelected : null,
       hoveredId: null,
@@ -386,6 +390,11 @@ export const useSceneStore = create<SceneState>()((set, get) => ({
       }
       case "statics": {
         entity = createDefaultStatic(tool.kind === "ground" ? "ground" : "wall");
+        // A palette-placed plane is always a thin, two-sided SURFACE: objects
+        // may exist on either side of it. Only the project floor seeded into a
+        // new project is a solid half-space; the inspector can promote any
+        // plane to a solid floor explicitly.
+        (entity as StaticEntity).solid = false;
         // Statics carry an optional `position`; place the plane so it passes
         // through the placement point instead of always sitting at the origin.
         (entity as StaticEntity).position = snap ? snap.point : surfacePoint;
